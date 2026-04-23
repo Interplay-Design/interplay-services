@@ -1,12 +1,11 @@
 # Interplay Services
 
-Interplay Services is the shared service layer for Interplay WordPress products. It centralizes product registration, update delivery, GitHub-backed release checks, and the foundation for future license enforcement.
+Interplay Services is the shared service layer for Interplay WordPress products. It operates as a must-use (MU) plugin, centralizing product registration, update delivery, GitHub-backed release checks, and the foundation for future license enforcement.
 
 ## What It Does
 
-- Registers Interplay-managed products in one registry.
+- Registers Interplay-managed products in one system-wide registry.
 - Injects native WordPress theme updates for the Intro theme.
-- Injects native WordPress plugin updates for Interplay Services itself.
 - Supports GitHub Releases as the current update source.
 - Supports private-repo downloads through a download proxy when authentication is required.
 - Exposes a settings page for GitHub token management, license-key storage, and product visibility.
@@ -14,27 +13,33 @@ Interplay Services is the shared service layer for Interplay WordPress products.
 ## Current Managed Products
 
 - `intro` theme
-- `interplay-services/interplay-services.php` plugin
 
-## Repository Model
+## Deployment Model
 
-- Intro is currently distributed from a private GitHub repository.
-- Interplay Services is intended to update from the public GitHub repository at `interplaydesign/interplay-services`.
-- The updater expects GitHub Releases to be the source of truth for published versions.
+Interplay Services is deployed as a must-use plugin in `wp-content/mu-plugins/interplay-services/`. This means:
+
+- The service layer is always loaded; it cannot be accidentally deactivated.
+- Intro theme automatically installs and updates Interplay Services when needed.
+- MU plugin updates are managed through custom Interplay deployment mechanisms.
 
 ## Installation
 
-Standard plugin install:
+When Intro is activated, it automatically:
 
-1. Copy the plugin to `wp-content/plugins/interplay-services/`.
-2. Activate **Interplay Services** in wp-admin.
+1. Detects if Interplay Services is installed.
+2. Downloads and extracts the MU plugin to `wp-content/mu-plugins/interplay-services/`.
+3. The plugin loads on the next page load (no activation step required).
 
-Theme-driven install via Intro:
+### Manual Install
 
-1. Set `INTRO_INTERPLAY_SERVICES_ZIP_URL` in `wp-config.php` to a public release zip.
-2. Activate the Intro theme.
-3. Intro will attempt to install and activate the plugin automatically.
-4. If `wp-content/mu-plugins/` is writable, Intro will also create a small MU loader so the plugin is always loaded when present.
+If needed, manually place the Interplay Services folder in `wp-content/mu-plugins/`:
+
+```
+wp-content/mu-plugins/interplay-services/
+  └── interplay-services.php
+  └── src/
+  └── ...
+```
 
 ## Configuration
 
@@ -47,6 +52,7 @@ For private GitHub repositories, set a fine-grained PAT in one of these ways:
 - environment variable: `INTERPLAY_SERVICES_GITHUB_TOKEN`
 
 For public repositories, a token is not required for downloading public release assets.
+
 
 ### License key
 

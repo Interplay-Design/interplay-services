@@ -16,7 +16,6 @@ namespace Interplay\Services\Registry;
 
 use Interplay\Services\Http\Client;
 use Interplay\Services\Registry\Contracts\ProductInterface;
-use Interplay\Services\Registry\Products\InterplayServicesPlugin;
 use Interplay\Services\Registry\Products\IntroTheme;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -52,7 +51,6 @@ class ProductRegistry {
 	 */
 	public function load_defaults(): void {
 		$this->register( new IntroTheme() );
-		$this->register( new InterplayServicesPlugin() );
 
 		/**
 		 * Fires after the default product list has been registered.

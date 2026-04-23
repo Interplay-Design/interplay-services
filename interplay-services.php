@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Interplay Services
  * Plugin URI:        https://interplay.design
- * Description:       Central service layer for Interplay products: update delivery, license enforcement, and product registry. Manages Intro theme updates from the private GitHub repository.
+ * Description:       Central service layer for Interplay products: update delivery, license enforcement, and product registry.
  * Version:           0.1.0-beta
  * Requires at least: 6.7
  * Requires PHP:      7.4
@@ -12,6 +12,9 @@
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain:       interplay-services
  * Domain Path:       /languages
+ *
+ * Can be used as a normal plugin or as an MU plugin.
+ * When used as an MU plugin, place this folder in wp-content/mu-plugins/.
  *
  * @package InterplayServices
  */
