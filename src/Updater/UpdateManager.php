@@ -83,9 +83,11 @@ class UpdateManager {
 	public function register_hooks(): void {
 		// Intercept the core update transients.
 		add_filter( 'pre_set_site_transient_update_themes',  [ $this, 'inject_theme_updates'  ] );
+		add_filter( 'pre_set_site_transient_update_plugins', [ $this, 'inject_plugin_updates' ] );
 
 		// Provide metadata to the theme details modal.
 		add_filter( 'themes_api', [ $this, 'filter_themes_api' ], 10, 3 );
+		add_filter( 'plugins_api', [ $this, 'filter_plugins_api' ], 10, 3 );
 
 		// Authenticated download proxy (for private repos).
 		$this->download_proxy->register_hooks();
@@ -149,6 +151,51 @@ class UpdateManager {
 	}
 
 	/**
+	 * Filter: 'pre_set_site_transient_update_plugins'
+	 *
+	 * Append update entries for managed plugins.
+	 *
+	 * @param  \stdClass $transient
+	 * @return \stdClass
+	 */
+	public function inject_plugin_updates( \stdClass $transient ): \stdClass {
+		if ( empty( $transient->checked ) || ! is_array( $transient->checked ) ) {
+			return $transient;
+		}
+
+		$plugins = $this->registry->of_type( 'plugin' );
+
+		foreach ( $plugins as $product ) {
+			$result = $this->check_product( $product );
+
+			if ( $result === null ) {
+				continue;
+			}
+
+			if ( ! $result->is_update_available( $product->get_installed_version() ) ) {
+				continue;
+			}
+
+			if ( $result->requires_auth ) {
+				$this->download_proxy->watch( $result->package_url );
+			}
+
+			$transient->response[ $product->get_id() ] = (object) [
+				'id'          => $product->get_id(),
+				'slug'        => $this->plugin_slug_from_product( $product ),
+				'plugin'      => $product->get_id(),
+				'new_version' => $result->version,
+				'url'         => $result->details_url,
+				'package'     => $result->package_url,
+			];
+
+			do_action( 'interplay_services_update_available', $product, $result );
+		}
+
+		return $transient;
+	}
+
+	/**
 	 * Filter: 'themes_api'
 	 *
 	 * Intercept requests for theme information used by the "View version details"
@@ -199,6 +246,70 @@ class UpdateManager {
 		];
 	}
 
+	/**
+	 * Filter: 'plugins_api'
+	 *
+	 * Intercept requests for plugin information used by the native plugin
+	 * details modal.
+	 *
+	 * @param  false|object|array $result
+	 * @param  string             $action e.g. 'plugin_information'
+	 * @param  object             $args
+	 * @return false|object|array
+	 */
+	public function filter_plugins_api( $result, string $action, object $args ) {
+		if ( $action !== 'plugin_information' ) {
+			return $result;
+		}
+
+		$slug = $args->slug ?? '';
+		if ( ! is_string( $slug ) || $slug === '' ) {
+			return $result;
+		}
+
+		$product = null;
+		foreach ( $this->registry->of_type( 'plugin' ) as $candidate ) {
+			if ( $this->plugin_slug_from_product( $candidate ) === $slug ) {
+				$product = $candidate;
+				break;
+			}
+		}
+
+		if ( $product === null ) {
+			return $result;
+		}
+
+		$update = $this->check_product( $product );
+		if ( $update === null ) {
+			return $result;
+		}
+
+		return (object) [
+			'name'           => $product->get_name(),
+			'slug'           => $this->plugin_slug_from_product( $product ),
+			'plugin_name'    => $product->get_id(),
+			'version'        => $update->version,
+			'author'         => 'the Interplay team',
+			'author_profile' => 'https://interplay.design',
+			'homepage'       => $update->details_url ?: 'https://github.com/interplaydesign/interplay-services',
+			'sections'       => [
+				'description' => sprintf(
+					'<p>%s</p>',
+					esc_html__( 'Central service layer for Interplay product updates and licensing.', 'interplay-services' )
+				),
+				'changelog'   => sprintf(
+					'<p><a href="%s" target="_blank" rel="noopener">%s</a></p>',
+					esc_url( $update->details_url ),
+					esc_html__( 'View release notes on GitHub', 'interplay-services' )
+				),
+			],
+			'download_link'  => $update->package_url,
+			'last_updated'   => gmdate( 'Y-m-d' ),
+			'banners'        => [],
+			'icons'          => [],
+		];
+	}
+
 	// ─── Cache busting ────────────────────────────────────────────────────────
 
 	/**
@@ -226,5 +337,14 @@ class UpdateManager {
 		}
 
 		return $driver->fetch_latest( $product );
+	}
+
+	private function plugin_slug_from_product( ProductInterface $product ): string {
+		$id = $product->get_id();
+		if ( str_contains( $id, '/' ) ) {
+			return dirname( $id );
+		}
+
+		return $id;
 	}
 }
