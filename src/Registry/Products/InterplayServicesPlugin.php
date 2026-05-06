@@ -53,7 +53,7 @@ class InterplayServicesPlugin implements ProductInterface {
 	public function get_update_source(): array {
 		return [
 			'driver'     => 'github',
-			'repository' => 'interplaydesign/interplay-services',
+			'repository' => 'Interplay-Design/interplay-services',
 			'asset_name' => null,
 		];
 	}

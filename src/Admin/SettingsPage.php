@@ -239,7 +239,7 @@ class SettingsPage {
 
 	public function render_credentials_section_intro(): void {
 		echo '<p>' . esc_html__(
-			'Use a fine-grained GitHub personal access token (PAT) for least-privilege access. For Intro updates, grant read-only Contents access and limit repository access to interplaydesign/Intro only.',
+			'Use a fine-grained GitHub personal access token (PAT) for least-privilege access. For Intro updates, grant read-only Contents access and limit repository access to Interplay-Design/Intro only.',
 			'interplay-services'
 		) . '</p>';
 	}
@@ -298,9 +298,9 @@ class SettingsPage {
 		<div style="background:#fff;border:1px solid #dcdcde;border-radius:6px;padding:12px 14px;max-width:900px;margin:0 0 10px;">
 			<p style="margin:0 0 8px;font-weight:600;"><?php esc_html_e( 'Token configuration:', 'interplay-services' ); ?></p>
 			<ul style="margin:0;list-style:disc;padding-left:20px;">
-				<li><?php esc_html_e( 'Resource owner: interplaydesign', 'interplay-services' ); ?></li>
-				<li><?php esc_html_e( 'Repository access: Only select repositories', 'interplay-services' ); ?></li>
-				<li><?php esc_html_e( 'Selected repository: Intro (interplaydesign/Intro)', 'interplay-services' ); ?></li>
+			<li><?php esc_html_e( 'Resource owner: Interplay-Design', 'interplay-services' ); ?></li>
+			<li><?php esc_html_e( 'Repository access: Only select repositories', 'interplay-services' ); ?></li>
+			<li><?php esc_html_e( 'Selected repository: Intro (Interplay-Design/Intro)', 'interplay-services' ); ?></li>
 				<li><?php esc_html_e( 'Contents: Read-only', 'interplay-services' ); ?></li>
 				<li><?php esc_html_e( 'Deployments: Read-only', 'interplay-services' ); ?></li>
 				<li><?php esc_html_e( 'Metadata: Read-only (required by GitHub)', 'interplay-services' ); ?></li>
@@ -334,7 +334,7 @@ class SettingsPage {
 			[
 				'name'        => 'Interplay Services - Intro Updates',
 				'description' => 'Read-only update checks for Interplay Intro theme updates',
-				'target_name' => 'interplaydesign',
+				'target_name' => 'Interplay-Design',
 				'expires_in'  => 'none',
 			],
 			'https://github.com/settings/personal-access-tokens/new'
@@ -421,7 +421,7 @@ class SettingsPage {
 	private function render_open_issues_table(): void {
 		$token = $this->get_github_token();
 		if ( $token === '' ) {
-			echo '<p>' . esc_html__( 'Add a GitHub token above to load open issues from interplaydesign/Intro.', 'interplay-services' ) . '</p>';
+			echo '<p>' . esc_html__( 'Add a GitHub token above to load open issues from Interplay-Design/Intro.', 'interplay-services' ) . '</p>';
 			return;
 		}
 
@@ -479,7 +479,7 @@ class SettingsPage {
 		<div style="margin-top:16px;max-width:1100px;background:#fff;border:1px solid #dcdcde;border-radius:6px;padding:14px;">
 			<h3 style="margin-top:0;"><?php esc_html_e( 'Create Intro Issue', 'interplay-services' ); ?></h3>
 			<p class="description" style="margin-top:0;">
-				<?php esc_html_e( 'Creates a new issue in interplaydesign/Intro using your configured token.', 'interplay-services' ); ?>
+				<?php esc_html_e( 'Creates a new issue in Interplay-Design/Intro using your configured token.', 'interplay-services' ); ?>
 			</p>
 			<form id="interplay-create-issue-form">
 				<p>
@@ -500,7 +500,7 @@ class SettingsPage {
 	}
 
 	/**
-	 * Fetch up to 10 open issues from interplaydesign/Intro.
+	 * Fetch up to 10 open issues from Interplay-Design/Intro.
 	 * Pull requests are excluded because GitHub returns PRs in the issues API.
 	 *
 	 * @return array<int,array<string,mixed>>|null
@@ -513,7 +513,7 @@ class SettingsPage {
 				'sort'      => 'updated',
 				'direction' => 'desc',
 			],
-			'https://api.github.com/repos/interplaydesign/Intro/issues'
+			'https://api.github.com/repos/Interplay-Design/Intro/issues'
 		);
 
 		$data = $this->http->get_json( $url );
@@ -579,7 +579,7 @@ class SettingsPage {
 		}
 
 		$response = $this->http->post(
-			'https://api.github.com/repos/interplaydesign/Intro/issues',
+			'https://api.github.com/repos/Interplay-Design/Intro/issues',
 			[
 				'headers' => [
 					'Content-Type' => 'application/json',

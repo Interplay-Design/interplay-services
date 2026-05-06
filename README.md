@@ -68,7 +68,7 @@ To publish an update that WordPress can detect:
 
 1. Bump the plugin version in `interplay-services.php`.
 2. Commit and push to `main`.
-3. Create a GitHub Release in `interplaydesign/interplay-services`.
+3. Create a GitHub Release in `Interplay-Design/interplay-services`.
 4. Attach a plugin zip asset if you want a stable package filename; otherwise the updater can fall back to GitHub's generated source archive.
 
 ## Architecture Overview

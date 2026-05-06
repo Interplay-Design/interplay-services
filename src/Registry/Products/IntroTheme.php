@@ -52,7 +52,7 @@ class IntroTheme implements ProductInterface {
 	public function get_update_source(): array {
 		return [
 			'driver'     => 'github',
-			'repository' => 'interplaydesign/intro',
+			'repository' => 'Interplay-Design/Intro',
 			'asset_name' => null, // use GitHub's auto-generated source zip
 		];
 	}
