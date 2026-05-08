@@ -198,6 +198,7 @@ class SettingsPage {
 			issueForm.addEventListener('submit', function(e) {
 				e.preventDefault();
 				var status = document.getElementById('interplay-create-issue-status');
+				var repository = document.getElementById('interplay-create-issue-repository').value;
 				var title = document.getElementById('interplay-create-issue-title').value.trim();
 				var body = document.getElementById('interplay-create-issue-body').value.trim();
 				if (!title) {
@@ -209,6 +210,7 @@ class SettingsPage {
 				var params = new URLSearchParams();
 				params.set('action', 'interplay_services_create_issue');
 				params.set('_wpnonce', '<?php echo esc_js( wp_create_nonce( 'interplay_services_create_issue' ) ); ?>');
+				params.set('repository', repository);
 				params.set('title', title);
 				params.set('body', body);
 
@@ -298,18 +300,19 @@ class SettingsPage {
 		<div style="background:#fff;border:1px solid #dcdcde;border-radius:6px;padding:12px 14px;max-width:900px;margin:0 0 10px;">
 			<p style="margin:0 0 8px;font-weight:600;"><?php esc_html_e( 'Token configuration:', 'interplay-services' ); ?></p>
 			<ul style="margin:0;list-style:disc;padding-left:20px;">
-			<li><?php esc_html_e( 'Resource owner: Interplay-Design', 'interplay-services' ); ?></li>
+			<li><?php esc_html_e( 'Resource owner: interplaydesign', 'interplay-services' ); ?></li>
 			<li><?php esc_html_e( 'Repository access: Only select repositories', 'interplay-services' ); ?></li>
-			<li><?php esc_html_e( 'Selected repositories: Intro (Interplay-Design/Intro) and interplay-services (Interplay-Design/interplay-services)', 'interplay-services' ); ?></li>
-				<li><?php esc_html_e( 'Contents: Read-only', 'interplay-services' ); ?></li>
-				<li><?php esc_html_e( 'Deployments: Read-only', 'interplay-services' ); ?></li>
-				<li><?php esc_html_e( 'Metadata: Read-only (required by GitHub)', 'interplay-services' ); ?></li>
-				<li><?php esc_html_e( 'Expiration: choose No Expiry if allowed; org policy may enforce an expiry.', 'interplay-services' ); ?></li>
-			</ul>
-			<p style="margin:10px 0 0;font-weight:600;"><?php esc_html_e( 'Optional for issue creation in this plugin:', 'interplay-services' ); ?></p>
-			<ul style="margin:6px 0 0;list-style:disc;padding-left:20px;">
-				<li><?php esc_html_e( 'Issues: Read and write (required only if you want to create issues from this admin page).', 'interplay-services' ); ?></li>
-				<li><?php esc_html_e( 'Pull requests: Read-only (optional for future release/changelog workflows).', 'interplay-services' ); ?></li>
+			<li><?php esc_html_e( 'Selected repositories: Intro (interplaydesign/Intro) and Interplay Services (interplaydesign/interplay-services)', 'interplay-services' ); ?></li>
+			<li><?php esc_html_e( 'Permissions:', 'interplay-services' ); ?></li>
+			<li><?php esc_html_e( 'Contents: Read-only', 'interplay-services' ); ?></li>
+			<li><?php esc_html_e( 'Deployments: Read-only', 'interplay-services' ); ?></li>
+			<li><?php esc_html_e( 'Metadata: Read-only (required by GitHub)', 'interplay-services' ); ?></li>
+			<li><?php esc_html_e( 'Expiration:', 'interplay-services' ); ?></li>
+			<li><?php esc_html_e( 'Choose No Expiry if allowed; org policy may enforce an expiry.', 'interplay-services' ); ?></li>
+			<li><?php esc_html_e( 'Issues:', 'interplay-services' ); ?></li>
+			<li><?php esc_html_e( 'Read and write (required only if you want to create issues from this admin page).', 'interplay-services' ); ?></li>
+			<li><?php esc_html_e( 'Pull requests:', 'interplay-services' ); ?></li>
+			<li><?php esc_html_e( 'Read-only (optional for future release/changelog workflows).', 'interplay-services' ); ?></li>
 			</ul>
 		</div>
 		<p class="description">
@@ -475,13 +478,22 @@ class SettingsPage {
 		if ( $token === '' ) {
 			return;
 		}
+		$repositories = $this->get_issue_repositories();
 		?>
 		<div style="margin-top:16px;max-width:1100px;background:#fff;border:1px solid #dcdcde;border-radius:6px;padding:14px;">
-			<h3 style="margin-top:0;"><?php esc_html_e( 'Create Intro Issue', 'interplay-services' ); ?></h3>
+			<h3 style="margin-top:0;"><?php esc_html_e( 'Create Issue', 'interplay-services' ); ?></h3>
 			<p class="description" style="margin-top:0;">
-				<?php esc_html_e( 'Creates a new issue in Interplay-Design/Intro using your configured token.', 'interplay-services' ); ?>
+				<?php esc_html_e( 'Creates a new issue in the selected repository using your configured token.', 'interplay-services' ); ?>
 			</p>
 			<form id="interplay-create-issue-form">
+				<p>
+					<label for="interplay-create-issue-repository"><strong><?php esc_html_e( 'Product', 'interplay-services' ); ?></strong></label><br />
+					<select id="interplay-create-issue-repository" style="max-width:320px;width:100%;">
+						<?php foreach ( $repositories as $repo => $label ) : ?>
+							<option value="<?php echo esc_attr( $repo ); ?>"><?php echo esc_html( $label ); ?></option>
+						<?php endforeach; ?>
+					</select>
+				</p>
 				<p>
 					<label for="interplay-create-issue-title"><strong><?php esc_html_e( 'Title', 'interplay-services' ); ?></strong></label><br />
 					<input id="interplay-create-issue-title" type="text" class="regular-text" style="max-width:900px;width:100%;" required />
@@ -531,6 +543,16 @@ class SettingsPage {
 		return $issues;
 	}
 
+	/**
+	 * @return array<string,string>
+	 */
+	private function get_issue_repositories(): array {
+		return [
+			'Interplay-Design/Intro'              => __( 'Intro', 'interplay-services' ),
+			'Interplay-Design/interplay-services' => __( 'Interplay Services', 'interplay-services' ),
+		];
+	}
+
 	private function format_github_datetime( string $value ): string {
 		if ( $value === '' ) {
 			return '—';
@@ -573,13 +595,19 @@ class SettingsPage {
 
 		$title = isset( $_POST['title'] ) ? sanitize_text_field( wp_unslash( (string) $_POST['title'] ) ) : '';
 		$body  = isset( $_POST['body'] ) ? sanitize_textarea_field( wp_unslash( (string) $_POST['body'] ) ) : '';
+		$repository = isset( $_POST['repository'] ) ? sanitize_text_field( wp_unslash( (string) $_POST['repository'] ) ) : 'Interplay-Design/Intro';
+		$repositories = $this->get_issue_repositories();
 
 		if ( $title === '' ) {
 			wp_send_json_error( [ 'message' => __( 'Issue title is required.', 'interplay-services' ) ] );
 		}
 
+		if ( ! isset( $repositories[ $repository ] ) ) {
+			wp_send_json_error( [ 'message' => __( 'Invalid repository selected.', 'interplay-services' ) ] );
+		}
+
 		$response = $this->http->post(
-			'https://api.github.com/repos/Interplay-Design/Intro/issues',
+			'https://api.github.com/repos/' . $repository . '/issues',
 			[
 				'headers' => [
 					'Content-Type' => 'application/json',
