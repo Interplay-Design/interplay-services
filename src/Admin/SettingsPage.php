@@ -586,42 +586,39 @@ class SettingsPage {
 	 * Render the open Interplay Services issues table.
 	 */
 	private function render_open_plugin_issues_table(): void {
-		if ( ! $this->token_manager->has_token() ) {
-			echo '<p class="description">' . esc_html__( 'Add a GitHub token above to view open Interplay Services issues.', 'interplay-services' ) . '</p>';
+		$token = $this->get_github_token();
+		if ( $token === '' ) {
+			echo '<p>' . esc_html__( 'Add a GitHub token above to load open issues from Interplay-Design/interplay-services.', 'interplay-services' ) . '</p>';
 			return;
 		}
 
 		$issues = $this->fetch_open_plugin_issues();
 
 		if ( $issues === null ) {
-			echo '<p class="description">' . esc_html__( 'Could not load Interplay Services issues. Check your token and network access.', 'interplay-services' ) . '</p>';
+			echo '<p>' . esc_html__( 'Could not load Interplay Services issues. Check your token and network access.', 'interplay-services' ) . '</p>';
 			return;
 		}
 
 		if ( count( $issues ) === 0 ) {
-			echo '<p class="description">' . esc_html__( 'No open Interplay Services issues.', 'interplay-services' ) . '</p>';
+			echo '<p>' . esc_html__( 'No open Interplay Services issues.', 'interplay-services' ) . '</p>';
 			return;
 		}
 		?>
-		<table class="widefat striped" style="max-width:900px;margin-bottom:16px;">
+		<table class="widefat striped" style="max-width:1100px">
 			<thead>
 				<tr>
-					<th><?php esc_html_e( '#', 'interplay-services' ); ?></th>
-					<th><?php esc_html_e( 'Title', 'interplay-services' ); ?></th>
-					<th><?php esc_html_e( 'Labels', 'interplay-services' ); ?></th>
+					<th><?php esc_html_e( 'Issue', 'interplay-services' ); ?></th>
+					<th><?php esc_html_e( 'Number', 'interplay-services' ); ?></th>
+					<th><?php esc_html_e( 'State', 'interplay-services' ); ?></th>
 					<th><?php esc_html_e( 'Updated', 'interplay-services' ); ?></th>
 				</tr>
 			</thead>
 			<tbody>
 			<?php foreach ( $issues as $issue ) : ?>
 				<tr>
-					<td><a href="<?php echo esc_url( $issue['html_url'] ?? '#' ); ?>" target="_blank" rel="noopener">#<?php echo esc_html( $issue['number'] ?? '' ); ?></a></td>
 					<td><a href="<?php echo esc_url( $issue['html_url'] ?? '#' ); ?>" target="_blank" rel="noopener"><?php echo esc_html( $issue['title'] ?? '' ); ?></a></td>
-					<td><?php
-						$labels = $issue['labels'] ?? [];
-						$label_names = array_map( static fn( $l ) => $l['name'] ?? '', $labels );
-						echo esc_html( implode( ', ', $label_names ) );
-					?></td>
+					<td>#<?php echo esc_html( $issue['number'] ?? '' ); ?></td>
+					<td><?php echo esc_html( $issue['state'] ?? '' ); ?></td>
 					<td><?php echo esc_html( isset( $issue['updated_at'] ) ? date( 'Y-m-d', strtotime( $issue['updated_at'] ) ) : '' ); ?></td>
 				</tr>
 			<?php endforeach; ?>
