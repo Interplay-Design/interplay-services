@@ -29,8 +29,11 @@ class DownloadProxy {
 
 	/** @var array<string,array<string,string>> Package URLs keyed to update metadata. */
 	private array $watched_packages = [];
+	private InstallSlugResolver $slug_resolver;
 
-	public function __construct( private readonly Client $http ) {}
+	public function __construct( private readonly Client $http ) {
+		$this->slug_resolver = new InstallSlugResolver();
+	}
 
 	public function register_hooks(): void {
 		add_filter( 'upgrader_pre_download', [ $this, 'maybe_proxy_download' ], 10, 3 );
@@ -159,34 +162,7 @@ class DownloadProxy {
 		}
 
 		$type = (string) ( $hook_extra['type'] ?? '' );
-		$expected = '';
-
-		if ( $type === 'theme' ) {
-			$expected = sanitize_title( (string) ( $hook_extra['theme'] ?? '' ) );
-		} elseif ( $type === 'plugin' ) {
-			$plugin = (string) ( $hook_extra['plugin'] ?? '' );
-			$expected = dirname( $plugin );
-			if ( $expected === '.' ) {
-				$expected = '';
-			}
-		}
-
-		if ( $expected === '' ) {
-			$package = (string) ( $hook_extra['package'] ?? '' );
-			if ( $package !== '' && isset( $this->watched_packages[ $package ] ) ) {
-				$watched_type = (string) ( $this->watched_packages[ $package ]['type'] ?? '' );
-				$watched_id   = (string) ( $this->watched_packages[ $package ]['id'] ?? '' );
-
-				if ( $watched_type === 'theme' ) {
-					$expected = sanitize_title( $watched_id );
-				} elseif ( $watched_type === 'plugin' ) {
-					$expected = dirname( $watched_id );
-					if ( $expected === '.' ) {
-						$expected = '';
-					}
-				}
-			}
-		}
+		$expected = $this->slug_resolver->resolve_expected_slug( $type, $hook_extra, $this->watched_packages );
 
 		if ( $expected === '' ) {
 			return $source;
