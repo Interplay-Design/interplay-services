@@ -171,6 +171,10 @@ class SettingsPage {
 
 			<h2><?php esc_html_e( 'Open Intro Issues', 'interplay-services' ); ?></h2>
 			<?php $this->render_open_issues_table(); ?>
+
+			<h2><?php esc_html_e( 'Open Interplay Services Issues', 'interplay-services' ); ?></h2>
+			<?php $this->render_open_plugin_issues_table(); ?>
+
 			<?php $this->render_issue_create_form(); ?>
 		</div>
 
@@ -299,19 +303,25 @@ class SettingsPage {
 		<div style="background:#fff;border:1px solid #dcdcde;border-radius:6px;padding:12px 14px;max-width:900px;margin:0 0 10px;">
 			<p style="margin:0 0 8px;font-weight:600;"><?php esc_html_e( 'Token configuration:', 'interplay-services' ); ?></p>
 			<ul style="margin:0;list-style:disc;padding-left:20px;">
-			<li><?php esc_html_e( 'Resource owner: Interplay-Design', 'interplay-services' ); ?></li>
-			<li><?php esc_html_e( 'Repository access: Only select repositories', 'interplay-services' ); ?></li>
-			<li><?php esc_html_e( 'Selected repositories: Intro (Interplay-Design/Intro) and Interplay Services (Interplay-Design/interplay-services)', 'interplay-services' ); ?></li>
-			<li><?php esc_html_e( 'Permissions:', 'interplay-services' ); ?></li>
-			<li><?php esc_html_e( 'Contents: Read-only', 'interplay-services' ); ?></li>
-			<li><?php esc_html_e( 'Deployments: Read-only', 'interplay-services' ); ?></li>
-			<li><?php esc_html_e( 'Metadata: Read-only (required by GitHub)', 'interplay-services' ); ?></li>
-			<li><?php esc_html_e( 'Expiration:', 'interplay-services' ); ?></li>
-			<li><?php esc_html_e( 'Choose No Expiry if allowed; org policy may enforce an expiry.', 'interplay-services' ); ?></li>
-			<li><?php esc_html_e( 'Issues:', 'interplay-services' ); ?></li>
-			<li><?php esc_html_e( 'Read and write (required only if you want to create issues from this admin page).', 'interplay-services' ); ?></li>
-			<li><?php esc_html_e( 'Pull requests:', 'interplay-services' ); ?></li>
-			<li><?php esc_html_e( 'Read-only (optional for future release/changelog workflows).', 'interplay-services' ); ?></li>
+				<li><?php esc_html_e( 'Resource owner: Interplay-Design', 'interplay-services' ); ?></li>
+				<li><?php esc_html_e( 'Repository access: Only select repositories', 'interplay-services' ); ?></li>
+				<li><?php esc_html_e( 'Selected repositories: Intro (Interplay-Design/Intro) and Interplay Services (Interplay-Design/interplay-services)', 'interplay-services' ); ?></li>
+				<li>
+					<strong><?php esc_html_e( 'Permissions:', 'interplay-services' ); ?></strong>
+					<ul style="list-style:disc;padding-left:20px;margin:4px 0 0;">
+						<li><?php esc_html_e( 'Contents: Read-only', 'interplay-services' ); ?></li>
+						<li><?php esc_html_e( 'Deployments: Read-only', 'interplay-services' ); ?></li>
+						<li><?php esc_html_e( 'Metadata: Read-only (required by GitHub)', 'interplay-services' ); ?></li>
+						<li><?php esc_html_e( 'Issues: Read and write (required only if you want to create issues from this admin page)', 'interplay-services' ); ?></li>
+						<li><?php esc_html_e( 'Pull requests: Read-only (optional for future release/changelog workflows)', 'interplay-services' ); ?></li>
+					</ul>
+				</li>
+				<li>
+					<strong><?php esc_html_e( 'Expiration:', 'interplay-services' ); ?></strong>
+					<ul style="list-style:disc;padding-left:20px;margin:4px 0 0;">
+						<li><?php esc_html_e( 'Choose No Expiry if allowed; org policy may enforce an expiry.', 'interplay-services' ); ?></li>
+					</ul>
+				</li>
 			</ul>
 		</div>
 		<p class="description">
@@ -540,6 +550,84 @@ class SettingsPage {
 		);
 
 		return $issues;
+	}
+
+	/**
+	 * Fetch up to 10 open issues from Interplay-Design/interplay-services.
+	 * Pull requests are excluded because GitHub returns PRs in the issues API.
+	 *
+	 * @return array<int,array<string,mixed>>|null
+	 */
+	private function fetch_open_plugin_issues(): ?array {
+		$url = add_query_arg(
+			[
+				'state'     => 'open',
+				'per_page'  => 10,
+				'sort'      => 'updated',
+				'direction' => 'desc',
+			],
+			'https://api.github.com/repos/Interplay-Design/interplay-services/issues'
+		);
+
+		$data = $this->http->get_json( $url );
+		if ( ! is_array( $data ) ) {
+			return null;
+		}
+
+		return array_values(
+			array_filter(
+				$data,
+				static fn( $item ) => is_array( $item ) && ! isset( $item['pull_request'] )
+			)
+		);
+	}
+
+	/**
+	 * Render the open Interplay Services issues table.
+	 */
+	private function render_open_plugin_issues_table(): void {
+		if ( ! $this->token_manager->has_token() ) {
+			echo '<p class="description">' . esc_html__( 'Add a GitHub token above to view open Interplay Services issues.', 'interplay-services' ) . '</p>';
+			return;
+		}
+
+		$issues = $this->fetch_open_plugin_issues();
+
+		if ( $issues === null ) {
+			echo '<p class="description">' . esc_html__( 'Could not load Interplay Services issues. Check your token and network access.', 'interplay-services' ) . '</p>';
+			return;
+		}
+
+		if ( count( $issues ) === 0 ) {
+			echo '<p class="description">' . esc_html__( 'No open Interplay Services issues.', 'interplay-services' ) . '</p>';
+			return;
+		}
+		?>
+		<table class="widefat striped" style="max-width:900px;margin-bottom:16px;">
+			<thead>
+				<tr>
+					<th><?php esc_html_e( '#', 'interplay-services' ); ?></th>
+					<th><?php esc_html_e( 'Title', 'interplay-services' ); ?></th>
+					<th><?php esc_html_e( 'Labels', 'interplay-services' ); ?></th>
+					<th><?php esc_html_e( 'Updated', 'interplay-services' ); ?></th>
+				</tr>
+			</thead>
+			<tbody>
+			<?php foreach ( $issues as $issue ) : ?>
+				<tr>
+					<td><a href="<?php echo esc_url( $issue['html_url'] ?? '#' ); ?>" target="_blank" rel="noopener">#<?php echo esc_html( $issue['number'] ?? '' ); ?></a></td>
+					<td><a href="<?php echo esc_url( $issue['html_url'] ?? '#' ); ?>" target="_blank" rel="noopener"><?php echo esc_html( $issue['title'] ?? '' ); ?></a></td>
+					<td><?php
+						$labels = $issue['labels'] ?? [];
+						$label_names = array_map( static fn( $l ) => $l['name'] ?? '', $labels );
+						echo esc_html( implode( ', ', $label_names ) );
+					?></td>
+					<td><?php echo esc_html( isset( $issue['updated_at'] ) ? date( 'Y-m-d', strtotime( $issue['updated_at'] ) ) : '' ); ?></td>
+				</tr>
+			<?php endforeach; ?>
+			</tbody>
+		</table>
+		<?php
 	}
 
 	/**
