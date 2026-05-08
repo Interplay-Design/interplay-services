@@ -186,7 +186,8 @@ class DownloadProxy {
 		}
 
 		if ( @rename( $source, $normalized ) ) {
-			return $normalized;
+			// Preserve the trailing slash WP expects on source paths.
+			return substr( $source, -1 ) === '/' ? trailingslashit( $normalized ) : $normalized;
 		}
 
 		return $source;
