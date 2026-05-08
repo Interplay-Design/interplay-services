@@ -162,17 +162,16 @@ class SettingsPage {
 
 			<h2><?php esc_html_e( 'Registered Products', 'interplay-services' ); ?></h2>
 			<?php $this->render_products_table(); ?>
-
-			<h2><?php esc_html_e( 'Open Intro Issues', 'interplay-services' ); ?></h2>
-			<?php $this->render_open_issues_table(); ?>
-			<?php $this->render_issue_create_form(); ?>
-
-			<p>
+			<p style="margin-top:8px;">
 				<button type="button" id="interplay-check-updates" class="button button-secondary">
 					<?php esc_html_e( 'Check for Updates Now', 'interplay-services' ); ?>
 				</button>
 				<span id="interplay-check-updates-status" style="margin-left:10px;"></span>
 			</p>
+
+			<h2><?php esc_html_e( 'Open Intro Issues', 'interplay-services' ); ?></h2>
+			<?php $this->render_open_issues_table(); ?>
+			<?php $this->render_issue_create_form(); ?>
 		</div>
 
 		<script>
@@ -575,11 +574,17 @@ class SettingsPage {
 			wp_send_json_error( [ 'message' => __( 'Insufficient permissions.', 'interplay-services' ) ] );
 		}
 
-		// Delete the update_themes transient to force a fresh check.
-		delete_site_transient( 'update_themes' );
+		// Bust the Interplay GitHub release cache so the next check hits the API fresh.
+		global $wpdb;
+		$wpdb->query( "DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_interplay_update_%' OR option_name LIKE '_transient_timeout_interplay_update_%'" );
 
-		// Force WordPress to re-run the update check.
+		// Clear both WordPress update transients.
+		delete_site_transient( 'update_themes' );
+		delete_site_transient( 'update_plugins' );
+
+		// Force WordPress to re-run both checks.
 		wp_update_themes();
+		wp_update_plugins();
 
 		wp_send_json_success( [
 			'message' => __( 'Update check complete. Reload the Updates screen to see results.', 'interplay-services' ),
