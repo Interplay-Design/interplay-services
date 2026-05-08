@@ -62,7 +62,21 @@ class DownloadProxy {
 
 		// Download file with auth headers (the HTTP Client injects the token
 		// automatically for github.com / api.github.com URLs).
-		$response = $this->http->get( $package, [ 'stream' => true ] );
+		$tmp_file = wp_tempnam( basename( (string) wp_parse_url( $package, PHP_URL_PATH ) ) ?: 'interplay-package.zip' );
+		if ( ! $tmp_file ) {
+			return new \WP_Error(
+				'interplay_download_failed',
+				__( 'Interplay Services could not create a temporary file for download.', 'interplay-services' )
+			);
+		}
+
+		$response = $this->http->get(
+			$package,
+			[
+				'stream'   => true,
+				'filename' => $tmp_file,
+			]
+		);
 
 		if ( is_wp_error( $response ) ) {
 			return new \WP_Error(
@@ -87,8 +101,16 @@ class DownloadProxy {
 			);
 		}
 
-		// Return the path to the streamed temp file that wp_remote_get wrote.
-		$tmp_path = (string) wp_remote_retrieve_body( $response );
+		// For streamed requests WordPress stores the temp file path in
+		// $response['filename'] (body is usually empty).
+		$tmp_path = '';
+		if ( is_array( $response ) && isset( $response['filename'] ) ) {
+			$tmp_path = (string) $response['filename'];
+		}
+
+		if ( $tmp_path === '' ) {
+			$tmp_path = (string) wp_remote_retrieve_body( $response );
+		}
 
 		if ( ! is_readable( $tmp_path ) ) {
 			return new \WP_Error(

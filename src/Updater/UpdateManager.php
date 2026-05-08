@@ -129,7 +129,7 @@ class UpdateManager {
 				$this->download_proxy->watch( $result->package_url );
 			}
 
-			$transient->response[ $product->get_id() ] = (object) [
+			$transient->response[ $product->get_id() ] = [
 				'theme'       => $product->get_id(),
 				'new_version' => $result->version,
 				'url'         => $result->details_url,
