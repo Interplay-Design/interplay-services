@@ -29,6 +29,12 @@ class DownloadProxy {
 
 	/** @var array<string,array<string,string>> Package URLs keyed to update metadata. */
 	private array $watched_packages = [];
+
+	/** Most-recently-proxied package URL in the current request, used to correlate
+	 *  the download with the source_selection rename so we can map back to product
+	 *  metadata even when hook_extra is missing fields. */
+	private string $last_proxied_url = '';
+
 	private InstallSlugResolver $slug_resolver;
 
 	public function __construct( private readonly Client $http ) {
@@ -63,15 +69,24 @@ class DownloadProxy {
 	 * @param  \WP_Upgrader          $upgrader
 	 * @return bool|string|\WP_Error  Path to the downloaded temp file, or the original $reply.
 	 */
-	public function maybe_proxy_download( $reply, string $package, \WP_Upgrader $upgrader ) {
-		// Only intervene for URLs we are watching.
-		if ( ! $this->should_proxy( $package ) ) {
+	public function maybe_proxy_download( $reply, $package, $upgrader ) {
+		if ( ! is_string( $package ) || ! $this->should_proxy( $package ) ) {
 			return $reply;
 		}
 
+		// Remember the URL so the upgrader_source_selection callback can map
+		// the extracted directory back to product metadata when hook_extra
+		// doesn't carry the package URL.
+		$this->last_proxied_url = $package;
+
 		// Download file with auth headers (the HTTP Client injects the token
 		// automatically for github.com / api.github.com URLs).
-		$tmp_file = wp_tempnam( basename( (string) wp_parse_url( $package, PHP_URL_PATH ) ) ?: 'interplay-package.zip' );
+		$base_name = basename( (string) wp_parse_url( $package, PHP_URL_PATH ) );
+		if ( $base_name === '' ) {
+			$base_name = 'interplay-package.zip';
+		}
+
+		$tmp_file = wp_tempnam( $base_name );
 		if ( ! $tmp_file ) {
 			return new \WP_Error(
 				'interplay_download_failed',
@@ -82,12 +97,15 @@ class DownloadProxy {
 		$response = $this->http->get(
 			$package,
 			[
-				'stream'   => true,
-				'filename' => $tmp_file,
+				'timeout'   => 300,
+				'stream'    => true,
+				'filename'  => $tmp_file,
+				'sslverify' => true,
 			]
 		);
 
 		if ( is_wp_error( $response ) ) {
+			@unlink( $tmp_file );
 			return new \WP_Error(
 				'interplay_download_failed',
 				sprintf(
@@ -100,6 +118,7 @@ class DownloadProxy {
 
 		$code = (int) wp_remote_retrieve_response_code( $response );
 		if ( $code < 200 || $code >= 300 ) {
+			@unlink( $tmp_file );
 			return new \WP_Error(
 				'interplay_download_failed',
 				sprintf(
@@ -110,34 +129,34 @@ class DownloadProxy {
 			);
 		}
 
-		// For streamed requests WordPress stores the temp file path in
-		// $response['filename'] (body is usually empty).
-		$tmp_path = '';
-		if ( is_array( $response ) && isset( $response['filename'] ) ) {
-			$tmp_path = (string) $response['filename'];
-		}
+		// Streamed responses have an empty body; the file is at $tmp_file.
+		// (We pass it explicitly so we don't rely on $response['filename'].)
+		clearstatcache( true, $tmp_file );
 
-		if ( $tmp_path === '' ) {
-			$tmp_path = (string) wp_remote_retrieve_body( $response );
-		}
-
-		if ( ! is_readable( $tmp_path ) ) {
+		if ( ! is_readable( $tmp_file ) || filesize( $tmp_file ) === 0 ) {
+			@unlink( $tmp_file );
 			return new \WP_Error(
 				'interplay_download_failed',
-				__( 'Interplay Services: downloaded file is not readable.', 'interplay-services' )
+				__( 'Interplay Services: downloaded file is empty or unreadable.', 'interplay-services' )
 			);
 		}
 
-		return $tmp_path;
+		return $tmp_file;
 	}
 
 	private function should_proxy( string $url ): bool {
+		if ( $url === '' ) {
+			return false;
+		}
+
 		if ( isset( $this->watched_packages[ $url ] ) ) {
 			return true;
 		}
 
-		// Fallback: proxy any api.github.com zipball url whenever a token is set.
-		if ( str_contains( $url, 'api.github.com' ) && get_option( 'interplay_services_github_token', '' ) !== '' ) {
+		// Fallback: proxy any api.github.com zipball URL whenever a token is
+		// available (constant / env / option). Without auth, a private repo
+		// zipball will return 404 / redirect-to-login.
+		if ( str_contains( $url, 'api.github.com' ) && $this->http->github_token() !== '' ) {
 			return true;
 		}
 
@@ -156,28 +175,46 @@ class DownloadProxy {
 	 * @param array        $hook_extra
 	 * @return string|\WP_Error
 	 */
-	public function normalize_source_selection( $source, string $remote_source, \WP_Upgrader $upgrader, array $hook_extra ) {
+	public function normalize_source_selection( $source, $remote_source, $upgrader, $hook_extra = [] ) {
 		if ( ! is_string( $source ) || $source === '' ) {
 			return $source;
 		}
 
+		if ( ! is_array( $hook_extra ) ) {
+			$hook_extra = [];
+		}
+
 		$type = (string) ( $hook_extra['type'] ?? '' );
+
+		// Inject the last-proxied URL into hook_extra so the resolver can
+		// look up watched-package metadata reliably.
+		if ( $this->last_proxied_url !== '' && empty( $hook_extra['package'] ) ) {
+			$hook_extra['package'] = $this->last_proxied_url;
+		}
+
 		$expected = $this->slug_resolver->resolve_expected_slug( $type, $hook_extra, $this->watched_packages );
 
 		if ( $expected === '' ) {
 			return $source;
 		}
 
-		$current = basename( untrailingslashit( $source ) );
+		$source_no_trailing = untrailingslashit( $source );
+		$current            = basename( $source_no_trailing );
 		if ( $current === $expected ) {
 			return $source;
 		}
 
-		$normalized = trailingslashit( dirname( untrailingslashit( $source ) ) ) . $expected;
+		$parent     = trailingslashit( dirname( $source_no_trailing ) );
+		$normalized = $parent . $expected;
 
+		// If a leftover folder exists at the normalized path (e.g. from a
+		// previous failed install), remove it so rename() can succeed.
 		if ( file_exists( $normalized ) ) {
 			global $wp_filesystem;
 			if ( ! $wp_filesystem ) {
+				if ( ! function_exists( 'WP_Filesystem' ) ) {
+					require_once ABSPATH . 'wp-admin/includes/file.php';
+				}
 				WP_Filesystem();
 			}
 			if ( $wp_filesystem && method_exists( $wp_filesystem, 'delete' ) ) {
@@ -185,7 +222,7 @@ class DownloadProxy {
 			}
 		}
 
-		if ( @rename( $source, $normalized ) ) {
+		if ( @rename( $source_no_trailing, $normalized ) ) {
 			// Preserve the trailing slash WP expects on source paths.
 			return substr( $source, -1 ) === '/' ? trailingslashit( $normalized ) : $normalized;
 		}

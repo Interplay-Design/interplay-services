@@ -616,10 +616,10 @@ class SettingsPage {
 			<tbody>
 			<?php foreach ( $issues as $issue ) : ?>
 				<tr>
-					<td><a href="<?php echo esc_url( $issue['html_url'] ?? '#' ); ?>" target="_blank" rel="noopener"><?php echo esc_html( $issue['title'] ?? '' ); ?></a></td>
-					<td>#<?php echo esc_html( $issue['number'] ?? '' ); ?></td>
-					<td><?php echo esc_html( $issue['state'] ?? '' ); ?></td>
-					<td><?php echo esc_html( isset( $issue['updated_at'] ) ? date( 'Y-m-d', strtotime( $issue['updated_at'] ) ) : '' ); ?></td>
+					<td><a href="<?php echo esc_url( (string) ( $issue['html_url'] ?? '#' ) ); ?>" target="_blank" rel="noopener"><?php echo esc_html( (string) ( $issue['title'] ?? '' ) ); ?></a></td>
+					<td>#<?php echo esc_html( (string) ( $issue['number'] ?? '' ) ); ?></td>
+					<td><?php echo esc_html( ucfirst( (string) ( $issue['state'] ?? '' ) ) ); ?></td>
+					<td><?php echo esc_html( $this->format_github_datetime( (string) ( $issue['updated_at'] ?? '' ) ) ); ?></td>
 				</tr>
 			<?php endforeach; ?>
 			</tbody>
@@ -655,13 +655,17 @@ class SettingsPage {
 	public function ajax_check_updates(): void {
 		check_ajax_referer( 'interplay_services_check_updates' );
 
-		if ( ! current_user_can( 'update_themes' ) ) {
+		if ( ! current_user_can( 'update_plugins' ) && ! current_user_can( 'update_themes' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Insufficient permissions.', 'interplay-services' ) ] );
 		}
 
 		// Bust the Interplay GitHub release cache so the next check hits the API fresh.
 		global $wpdb;
-		$wpdb->query( "DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_interplay_update_%' OR option_name LIKE '_transient_timeout_interplay_update_%'" );
+		$wpdb->query(
+			"DELETE FROM {$wpdb->options}
+			 WHERE option_name LIKE '_transient_interplay_update_%'
+			    OR option_name LIKE '_transient_timeout_interplay_update_%'"
+		);
 
 		// Clear both WordPress update transients.
 		delete_site_transient( 'update_themes' );

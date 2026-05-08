@@ -80,8 +80,17 @@ class UpdateManager {
 
 	// ─── WordPress hook registration ──────────────────────────────────────────
 
+	private bool $hooks_registered = false;
+
 	public function register_hooks(): void {
-		// Intercept the core theme update transient.
+		// Idempotent: the plugin's own update reactivates the plugin file mid-request,
+		// which would otherwise re-add every filter and double-fire the injection logic.
+		if ( $this->hooks_registered ) {
+			return;
+		}
+		$this->hooks_registered = true;
+
+		// Intercept the core theme/plugin update transients.
 		add_filter( 'pre_set_site_transient_update_themes', [ $this, 'inject_theme_updates' ] );
 		add_filter( 'pre_set_site_transient_update_plugins', [ $this, 'inject_plugin_updates' ] );
 
@@ -91,7 +100,7 @@ class UpdateManager {
 		add_filter( 'site_transient_update_themes', [ $this, 'reregister_theme_watches' ] );
 		add_filter( 'site_transient_update_plugins', [ $this, 'reregister_plugin_watches' ] );
 
-		// Provide metadata to the theme details modal.
+		// Provide metadata to the theme/plugin details modal.
 		add_filter( 'themes_api', [ $this, 'filter_themes_api' ], 10, 3 );
 		add_filter( 'plugins_api', [ $this, 'filter_plugins_api' ], 10, 3 );
 
@@ -111,18 +120,27 @@ class UpdateManager {
 	 * We append update entries for all registered themes that have a newer
 	 * version available in their source.
 	 *
-	 * @param  \stdClass $transient
-	 * @return \stdClass
+	 * Tolerant of non-stdClass values (false, null, arrays) that other plugins
+	 * or edge-case core paths can pass through this filter.
+	 *
+	 * @param  mixed $transient
+	 * @return mixed
 	 */
-	public function inject_theme_updates( \stdClass $transient ): \stdClass {
-		if ( empty( $transient->checked ) ) {
+	public function inject_theme_updates( $transient ) {
+		if ( ! is_object( $transient ) ) {
 			return $transient;
 		}
 
-		$themes = $this->registry->of_type( 'theme' );
+		if ( ! isset( $transient->response ) || ! is_array( $transient->response ) ) {
+			$transient->response = [];
+		}
 
-		foreach ( $themes as $product ) {
-			$this->register_available_update( $product, $transient->response );
+		try {
+			foreach ( $this->registry->of_type( 'theme' ) as $product ) {
+				$this->register_available_update( $product, $transient->response );
+			}
+		} catch ( \Throwable $e ) {
+			$this->log_exception( 'inject_theme_updates', $e );
 		}
 
 		return $transient;
@@ -131,40 +149,55 @@ class UpdateManager {
 	/**
 	 * Filter: 'pre_set_site_transient_update_plugins'
 	 *
-	 * @param \stdClass $transient
-	 * @return \stdClass
+	 * @param  mixed $transient
+	 * @return mixed
 	 */
-	public function inject_plugin_updates( \stdClass $transient ): \stdClass {
-		if ( empty( $transient->checked ) ) {
+	public function inject_plugin_updates( $transient ) {
+		if ( ! is_object( $transient ) ) {
 			return $transient;
 		}
 
-		$plugins = $this->registry->of_type( 'plugin' );
+		if ( ! isset( $transient->response ) || ! is_array( $transient->response ) ) {
+			$transient->response = [];
+		}
 
-		foreach ( $plugins as $product ) {
-			$result = $this->check_product( $product );
+		try {
+			foreach ( $this->registry->of_type( 'plugin' ) as $product ) {
+				$result = $this->check_product( $product );
 
-			if ( $result === null || ! $result->is_update_available( $product->get_installed_version() ) ) {
-				continue;
+				if ( $result === null || ! $result->is_update_available( $product->get_installed_version() ) ) {
+					continue;
+				}
+
+				$this->register_download_watch( $product, $result );
+
+				$plugin_id = $product->get_id();
+				$slug      = dirname( $plugin_id );
+				if ( $slug === '.' || $slug === '' ) {
+					$slug = $plugin_id;
+				}
+
+				$source = $product->get_update_source();
+
+				$transient->response[ $plugin_id ] = (object) [
+					'id'           => (string) ( $source['repository'] ?? $plugin_id ),
+					'slug'         => $slug,
+					'plugin'       => $plugin_id,
+					'new_version'  => $result->version,
+					'url'          => $result->details_url,
+					'package'      => $result->package_url,
+					'icons'        => [],
+					'banners'      => [],
+					'banners_rtl'  => [],
+					'tested'       => '',
+					'requires_php' => '',
+					'compatibility'=> new \stdClass(),
+				];
+
+				do_action( 'interplay_services_update_available', $product, $result );
 			}
-
-			$this->register_download_watch( $product, $result );
-
-			$slug = dirname( $product->get_id() );
-			if ( $slug === '.' || $slug === '' ) {
-				$slug = $product->get_id();
-			}
-
-			$transient->response[ $product->get_id() ] = (object) [
-				'id'          => $product->get_update_source()['repository'] ?? $product->get_id(),
-				'slug'        => $slug,
-				'plugin'      => $product->get_id(),
-				'new_version' => $result->version,
-				'url'         => $result->details_url,
-				'package'     => $result->package_url,
-			];
-
-			do_action( 'interplay_services_update_available', $product, $result );
+		} catch ( \Throwable $e ) {
+			$this->log_exception( 'inject_plugin_updates', $e );
 		}
 
 		return $transient;
@@ -181,13 +214,13 @@ class UpdateManager {
 	 * @param  \stdClass       $args
 	 * @return false|\stdClass
 	 */
-	public function filter_themes_api( $result, string $action, \stdClass $args ) {
+	public function filter_themes_api( $result, string $action, $args ) {
 		if ( $action !== 'theme_information' ) {
 			return $result;
 		}
 
-		$slug    = $args->slug ?? '';
-		$product = $this->registry->find( $slug );
+		$slug    = is_object( $args ) ? (string) ( $args->slug ?? '' ) : '';
+		$product = $slug !== '' ? $this->registry->find( $slug ) : null;
 
 		if ( $product === null || $product->get_type() !== 'theme' ) {
 			return $result;
@@ -229,12 +262,16 @@ class UpdateManager {
 	 * @param \stdClass          $args
 	 * @return false|object|array
 	 */
-	public function filter_plugins_api( $result, string $action, \stdClass $args ) {
+	public function filter_plugins_api( $result, string $action, $args ) {
 		if ( $action !== 'plugin_information' ) {
 			return $result;
 		}
 
-		$slug = (string) ( $args->slug ?? '' );
+		$slug = is_object( $args ) ? (string) ( $args->slug ?? '' ) : '';
+		if ( $slug === '' ) {
+			return $result;
+		}
+
 		$product = $this->registry->find( $slug . '/' . $slug . '.php' );
 
 		if ( $product === null || $product->get_type() !== 'plugin' ) {
@@ -292,7 +329,12 @@ class UpdateManager {
 			return null;
 		}
 
-		return $driver->fetch_latest( $product );
+		try {
+			return $driver->fetch_latest( $product );
+		} catch ( \Throwable $e ) {
+			$this->log_exception( 'check_product:' . $product->get_id(), $e );
+			return null;
+		}
 	}
 
 	/**
@@ -308,17 +350,19 @@ class UpdateManager {
 		$this->register_download_watch( $product, $result );
 
 		$response[ $product->get_id() ] = [
-			'theme'       => $product->get_id(),
-			'new_version' => $result->version,
-			'url'         => $result->details_url,
-			'package'     => $result->package_url,
+			'theme'        => $product->get_id(),
+			'new_version'  => $result->version,
+			'url'          => $result->details_url,
+			'package'      => $result->package_url,
+			'requires'     => '',
+			'requires_php' => '',
 		];
 
 		do_action( 'interplay_services_update_available', $product, $result );
 	}
 
 	private function register_download_watch( ProductInterface $product, UpdateResult $result ): void {
-		if ( ! $result->requires_auth ) {
+		if ( ! $result->requires_auth || $result->package_url === '' ) {
 			return;
 		}
 
@@ -329,6 +373,19 @@ class UpdateManager {
 				'id'   => $product->get_id(),
 			]
 		);
+	}
+
+	private function log_exception( string $context, \Throwable $e ): void {
+		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions
+			error_log( sprintf(
+				'[Interplay Services] %s: %s in %s:%d',
+				$context,
+				$e->getMessage(),
+				$e->getFile(),
+				$e->getLine()
+			) );
+		}
 	}
 
 	/**

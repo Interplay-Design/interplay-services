@@ -53,7 +53,7 @@ class GitHubReleasesSource implements UpdateSourceInterface {
 
 	public function fetch_latest( ProductInterface $product ): ?UpdateResult {
 		$source = $product->get_update_source();
-		$repo   = $source['repository'] ?? '';
+		$repo   = (string) ( $source['repository'] ?? '' );
 
 		if ( $repo === '' ) {
 			return null;
@@ -62,17 +62,50 @@ class GitHubReleasesSource implements UpdateSourceInterface {
 		$cache_key = 'interplay_update_' . md5( 'github_' . $repo );
 		$cached    = get_transient( $cache_key );
 
+		// Cache stores plain arrays so changes to the UpdateResult class shape
+		// never poison the cache and force a clear across all sites.
+		if ( is_array( $cached ) && isset( $cached['version'] ) ) {
+			return $this->result_from_cache( $cached );
+		}
+
+		// Legacy: a previously-cached UpdateResult instance. Discard and refetch.
 		if ( $cached instanceof UpdateResult ) {
-			return $cached;
+			delete_transient( $cache_key );
 		}
 
 		$result = $this->query_github( $repo, $source );
 
 		if ( $result !== null ) {
-			set_transient( $cache_key, $result, self::CACHE_TTL );
+			set_transient( $cache_key, $this->result_to_cache( $result ), self::CACHE_TTL );
 		}
 
 		return $result;
+	}
+
+	/**
+	 * @param array<string,mixed> $data
+	 */
+	private function result_from_cache( array $data ): UpdateResult {
+		return new UpdateResult(
+			version:       (string) ( $data['version'] ?? '' ),
+			package_url:   (string) ( $data['package_url'] ?? '' ),
+			details_url:   (string) ( $data['details_url'] ?? '' ),
+			requires_auth: (bool) ( $data['requires_auth'] ?? false ),
+			raw:           is_array( $data['raw'] ?? null ) ? $data['raw'] : [],
+		);
+	}
+
+	/**
+	 * @return array<string,mixed>
+	 */
+	private function result_to_cache( UpdateResult $result ): array {
+		return [
+			'version'       => $result->version,
+			'package_url'   => $result->package_url,
+			'details_url'   => $result->details_url,
+			'requires_auth' => $result->requires_auth,
+			'raw'           => [], // skip raw payload to keep transients small
+		];
 	}
 
 	// ─── Internals ────────────────────────────────────────────────────────────
@@ -140,7 +173,9 @@ class GitHubReleasesSource implements UpdateSourceInterface {
 	}
 
 	private function github_token(): string {
-		return (string) get_option( 'interplay_services_github_token', '' );
+		// Delegate to the HTTP client so the constant / env / option chain is
+		// authoritative in one place.
+		return $this->http->github_token();
 	}
 
 	// ─── Cache invalidation ───────────────────────────────────────────────────

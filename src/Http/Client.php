@@ -24,8 +24,8 @@ class Client {
 	// Default timeout for remote requests (seconds).
 	private const TIMEOUT = 15;
 
-	// User-Agent sent with every request.
-	private const USER_AGENT = 'InterplayServices/' . \INTERPLAY_SERVICES_VERSION . '; WordPress/' . '{wp_version}';
+	// Hosts we recognise as GitHub. Match must be exact or a subdomain.
+	private const GITHUB_HOSTS = [ 'github.com', 'api.github.com', 'codeload.github.com', 'objects.githubusercontent.com' ];
 
 	/**
 	 * Perform a GET request.
@@ -121,11 +121,25 @@ class Client {
 	}
 
 	private function is_github_url( string $url ): bool {
-		$host = (string) wp_parse_url( $url, PHP_URL_HOST );
-		return str_ends_with( $host, 'github.com' ) || str_ends_with( $host, 'api.github.com' );
+		$host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
+		if ( $host === '' ) {
+			return false;
+		}
+
+		foreach ( self::GITHUB_HOSTS as $allowed ) {
+			if ( $host === $allowed || str_ends_with( $host, '.' . $allowed ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
-	private function github_token(): string {
+	/**
+	 * Public so other components can check token availability without
+	 * recreating the constant/env/option lookup chain.
+	 */
+	public function github_token(): string {
 		if ( defined( 'INTERPLAY_SERVICES_GITHUB_TOKEN' ) && constant( 'INTERPLAY_SERVICES_GITHUB_TOKEN' ) !== '' ) {
 			return (string) constant( 'INTERPLAY_SERVICES_GITHUB_TOKEN' );
 		}

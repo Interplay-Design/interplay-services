@@ -87,15 +87,32 @@ final class Plugin {
 
 	// ─── Boot ─────────────────────────────────────────────────────────────────
 
+	private bool $booted = false;
+
 	/**
 	 * Register core services and wire WordPress hooks.
 	 * Called once from the main plugin file after the autoloader is loaded.
+	 *
+	 * Idempotent: WordPress's plugin upgrader re-includes the plugin bootstrap
+	 * after a self-update completes, so boot() may be called twice in the same
+	 * request. The second call is a no-op.
 	 */
 	public function boot(): void {
+		if ( $this->booted ) {
+			return;
+		}
+		$this->booted = true;
+
 		$this->bind_services();
 
-		// Defer hook registration until WordPress is fully initialised.
-		add_action( 'plugins_loaded', [ $this, 'init' ], 5 );
+		// If 'plugins_loaded' hasn't fired yet, defer init until it does.
+		// If it already fired (e.g. we're booting during a self-update reactivation),
+		// run init() inline so registered services come online for the rest of the request.
+		if ( did_action( 'plugins_loaded' ) ) {
+			$this->init();
+		} else {
+			add_action( 'plugins_loaded', [ $this, 'init' ], 5 );
+		}
 	}
 
 	/**
@@ -135,20 +152,40 @@ final class Plugin {
 		);
 	}
 
+	private bool $initialized = false;
+
 	/**
 	 * Initialise services that need WordPress to be loaded.
-	 * Fires on 'plugins_loaded'.
+	 * Fires on 'plugins_loaded' (or inline if plugins_loaded already fired).
 	 */
 	public function init(): void {
-		// Load product definitions (registers Intro theme etc.)
-		$this->make( Registry\ProductRegistry::class )->load_defaults();
+		if ( $this->initialized ) {
+			return;
+		}
+		$this->initialized = true;
 
-		// Wire update checks.
-		$this->make( Updater\UpdateManager::class )->register_hooks();
+		try {
+			// Load product definitions (registers Intro theme etc.)
+			$this->make( Registry\ProductRegistry::class )->load_defaults();
 
-		// Wire admin UI.
-		if ( is_admin() ) {
-			$this->make( Admin\SettingsPage::class )->register_hooks();
+			// Wire update checks.
+			$this->make( Updater\UpdateManager::class )->register_hooks();
+
+			// Wire admin UI.
+			if ( is_admin() ) {
+				$this->make( Admin\SettingsPage::class )->register_hooks();
+			}
+		} catch ( \Throwable $e ) {
+			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+				// phpcs:ignore WordPress.PHP.DevelopmentFunctions
+				error_log( sprintf(
+					'[Interplay Services] init failure: %s in %s:%d',
+					$e->getMessage(),
+					$e->getFile(),
+					$e->getLine()
+				) );
+			}
+			// Don't let a service-wiring exception take down WordPress.
 		}
 	}
 }
