@@ -70,6 +70,13 @@ class DownloadProxy {
 	 * @return bool|string|\WP_Error  Path to the downloaded temp file, or the original $reply.
 	 */
 	public function maybe_proxy_download( $reply, $package, $upgrader ) {
+		$this->log( sprintf(
+			'pre_download enter: package=%s should_proxy=%s watched=%s',
+			is_string( $package ) ? $package : '<' . gettype( $package ) . '>',
+			is_string( $package ) && $this->should_proxy( $package ) ? 'yes' : 'no',
+			wp_json_encode( array_keys( $this->watched_packages ) )
+		) );
+
 		if ( ! is_string( $package ) || ! $this->should_proxy( $package ) ) {
 			return $reply;
 		}
@@ -176,6 +183,29 @@ class DownloadProxy {
 	 * @return string|\WP_Error
 	 */
 	public function normalize_source_selection( $source, $remote_source, $upgrader, $hook_extra = [] ) {
+		try {
+			return $this->do_normalize_source_selection( $source, $remote_source, $upgrader, $hook_extra );
+		} catch ( \Throwable $e ) {
+			$this->log( sprintf(
+				'normalize_source_selection threw %s: %s in %s:%d',
+				get_class( $e ),
+				$e->getMessage(),
+				$e->getFile(),
+				$e->getLine()
+			) );
+			return $source;
+		}
+	}
+
+	private function do_normalize_source_selection( $source, $remote_source, $upgrader, $hook_extra ) {
+		$this->log( sprintf(
+			'source_selection enter: source=%s hook_extra=%s last_proxied=%s watched=%s',
+			is_string( $source ) ? $source : '<' . gettype( $source ) . '>',
+			wp_json_encode( $hook_extra ),
+			$this->last_proxied_url,
+			wp_json_encode( array_keys( $this->watched_packages ) )
+		) );
+
 		if ( ! is_string( $source ) || $source === '' ) {
 			return $source;
 		}
@@ -186,13 +216,12 @@ class DownloadProxy {
 
 		$type = (string) ( $hook_extra['type'] ?? '' );
 
-		// Inject the last-proxied URL into hook_extra so the resolver can
-		// look up watched-package metadata reliably.
 		if ( $this->last_proxied_url !== '' && empty( $hook_extra['package'] ) ) {
 			$hook_extra['package'] = $this->last_proxied_url;
 		}
 
 		$expected = $this->slug_resolver->resolve_expected_slug( $type, $hook_extra, $this->watched_packages );
+		$this->log( sprintf( 'resolved expected slug for type=%s: "%s"', $type, $expected ) );
 
 		if ( $expected === '' ) {
 			return $source;
@@ -207,8 +236,6 @@ class DownloadProxy {
 		$parent     = trailingslashit( dirname( $source_no_trailing ) );
 		$normalized = $parent . $expected;
 
-		// If a leftover folder exists at the normalized path (e.g. from a
-		// previous failed install), remove it so rename() can succeed.
 		if ( file_exists( $normalized ) ) {
 			global $wp_filesystem;
 			if ( ! $wp_filesystem ) {
@@ -222,11 +249,25 @@ class DownloadProxy {
 			}
 		}
 
-		if ( @rename( $source_no_trailing, $normalized ) ) {
-			// Preserve the trailing slash WP expects on source paths.
+		$renamed = @rename( $source_no_trailing, $normalized );
+		$this->log( sprintf(
+			'rename %s -> %s : %s',
+			$source_no_trailing,
+			$normalized,
+			$renamed ? 'OK' : 'FAILED'
+		) );
+
+		if ( $renamed ) {
 			return substr( $source, -1 ) === '/' ? trailingslashit( $normalized ) : $normalized;
 		}
 
 		return $source;
+	}
+
+	private function log( string $message ): void {
+		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions
+			error_log( '[Interplay Services][DownloadProxy] ' . $message );
+		}
 	}
 }
