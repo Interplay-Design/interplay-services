@@ -299,9 +299,9 @@ class SettingsPage {
 		<div style="background:#fff;border:1px solid #dcdcde;border-radius:6px;padding:12px 14px;max-width:900px;margin:0 0 10px;">
 			<p style="margin:0 0 8px;font-weight:600;"><?php esc_html_e( 'Token configuration:', 'interplay-services' ); ?></p>
 			<ul style="margin:0;list-style:disc;padding-left:20px;">
-			<li><?php esc_html_e( 'Resource owner: interplaydesign', 'interplay-services' ); ?></li>
+			<li><?php esc_html_e( 'Resource owner: Interplay-Design', 'interplay-services' ); ?></li>
 			<li><?php esc_html_e( 'Repository access: Only select repositories', 'interplay-services' ); ?></li>
-			<li><?php esc_html_e( 'Selected repositories: Intro (interplaydesign/Intro) and Interplay Services (interplaydesign/interplay-services)', 'interplay-services' ); ?></li>
+			<li><?php esc_html_e( 'Selected repositories: Intro (Interplay-Design/Intro) and Interplay Services (Interplay-Design/interplay-services)', 'interplay-services' ); ?></li>
 			<li><?php esc_html_e( 'Permissions:', 'interplay-services' ); ?></li>
 			<li><?php esc_html_e( 'Contents: Read-only', 'interplay-services' ); ?></li>
 			<li><?php esc_html_e( 'Deployments: Read-only', 'interplay-services' ); ?></li>
