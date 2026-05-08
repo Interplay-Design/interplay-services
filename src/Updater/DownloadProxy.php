@@ -27,23 +27,29 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class DownloadProxy {
 
-	/** @var string[] Package URLs that require proxied download. */
-	private array $watched_urls = [];
+	/** @var array<string,array<string,string>> Package URLs keyed to update metadata. */
+	private array $watched_packages = [];
 
 	public function __construct( private readonly Client $http ) {}
 
 	public function register_hooks(): void {
 		add_filter( 'upgrader_pre_download', [ $this, 'maybe_proxy_download' ], 10, 3 );
+		add_filter( 'upgrader_source_selection', [ $this, 'normalize_source_selection' ], 10, 4 );
 	}
 
 	/**
 	 * Register a URL that should be downloaded with authentication.
 	 * Called by UpdateManager when it builds the update transient.
 	 */
-	public function watch( string $url ): void {
-		if ( $url !== '' && ! in_array( $url, $this->watched_urls, true ) ) {
-			$this->watched_urls[] = $url;
+	public function watch( string $url, array $meta = [] ): void {
+		if ( $url === '' ) {
+			return;
 		}
+
+		$this->watched_packages[ $url ] = [
+			'type' => (string) ( $meta['type'] ?? '' ),
+			'id'   => (string) ( $meta['id'] ?? '' ),
+		];
 	}
 
 	/**
@@ -123,7 +129,7 @@ class DownloadProxy {
 	}
 
 	private function should_proxy( string $url ): bool {
-		if ( in_array( $url, $this->watched_urls, true ) ) {
+		if ( isset( $this->watched_packages[ $url ] ) ) {
 			return true;
 		}
 
@@ -133,5 +139,63 @@ class DownloadProxy {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Hook: 'upgrader_source_selection'
+	 *
+	 * Normalize extracted GitHub zipball directories back to the canonical
+	 * theme/plugin slug so updates install into the expected target folder.
+	 *
+	 * @param string       $source
+	 * @param string       $remote_source
+	 * @param \WP_Upgrader $upgrader
+	 * @param array        $hook_extra
+	 * @return string|\WP_Error
+	 */
+	public function normalize_source_selection( $source, string $remote_source, \WP_Upgrader $upgrader, array $hook_extra ) {
+		if ( ! is_string( $source ) || $source === '' ) {
+			return $source;
+		}
+
+		$type = (string) ( $hook_extra['type'] ?? '' );
+		$expected = '';
+
+		if ( $type === 'theme' ) {
+			$expected = sanitize_title( (string) ( $hook_extra['theme'] ?? '' ) );
+		} elseif ( $type === 'plugin' ) {
+			$plugin = (string) ( $hook_extra['plugin'] ?? '' );
+			$expected = dirname( $plugin );
+			if ( $expected === '.' ) {
+				$expected = '';
+			}
+		}
+
+		if ( $expected === '' ) {
+			return $source;
+		}
+
+		$current = basename( untrailingslashit( $source ) );
+		if ( $current === $expected ) {
+			return $source;
+		}
+
+		$normalized = trailingslashit( dirname( untrailingslashit( $source ) ) ) . $expected;
+
+		if ( file_exists( $normalized ) ) {
+			global $wp_filesystem;
+			if ( ! $wp_filesystem ) {
+				WP_Filesystem();
+			}
+			if ( $wp_filesystem && method_exists( $wp_filesystem, 'delete' ) ) {
+				$wp_filesystem->delete( $normalized, true );
+			}
+		}
+
+		if ( @rename( $source, $normalized ) ) {
+			return $normalized;
+		}
+
+		return $source;
 	}
 }

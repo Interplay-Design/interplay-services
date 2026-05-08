@@ -239,7 +239,7 @@ class SettingsPage {
 
 	public function render_credentials_section_intro(): void {
 		echo '<p>' . esc_html__(
-			'Use a fine-grained GitHub personal access token (PAT) for least-privilege access. For Intro updates, grant read-only Contents access and limit repository access to Interplay-Design/Intro only.',
+			'Use a fine-grained GitHub personal access token (PAT) for least-privilege access. For Intro and Interplay Services updates, grant read-only Contents access and limit repository access to Interplay-Design/Intro plus Interplay-Design/interplay-services.',
 			'interplay-services'
 		) . '</p>';
 	}
@@ -300,7 +300,7 @@ class SettingsPage {
 			<ul style="margin:0;list-style:disc;padding-left:20px;">
 			<li><?php esc_html_e( 'Resource owner: Interplay-Design', 'interplay-services' ); ?></li>
 			<li><?php esc_html_e( 'Repository access: Only select repositories', 'interplay-services' ); ?></li>
-			<li><?php esc_html_e( 'Selected repository: Intro (Interplay-Design/Intro)', 'interplay-services' ); ?></li>
+			<li><?php esc_html_e( 'Selected repositories: Intro (Interplay-Design/Intro) and interplay-services (Interplay-Design/interplay-services)', 'interplay-services' ); ?></li>
 				<li><?php esc_html_e( 'Contents: Read-only', 'interplay-services' ); ?></li>
 				<li><?php esc_html_e( 'Deployments: Read-only', 'interplay-services' ); ?></li>
 				<li><?php esc_html_e( 'Metadata: Read-only (required by GitHub)', 'interplay-services' ); ?></li>

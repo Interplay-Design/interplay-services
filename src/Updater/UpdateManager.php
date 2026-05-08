@@ -83,9 +83,11 @@ class UpdateManager {
 	public function register_hooks(): void {
 		// Intercept the core theme update transient.
 		add_filter( 'pre_set_site_transient_update_themes', [ $this, 'inject_theme_updates' ] );
+		add_filter( 'pre_set_site_transient_update_plugins', [ $this, 'inject_plugin_updates' ] );
 
 		// Provide metadata to the theme details modal.
 		add_filter( 'themes_api', [ $this, 'filter_themes_api' ], 10, 3 );
+		add_filter( 'plugins_api', [ $this, 'filter_plugins_api' ], 10, 3 );
 
 		// Authenticated download proxy (for private repos).
 		$this->download_proxy->register_hooks();
@@ -114,34 +116,48 @@ class UpdateManager {
 		$themes = $this->registry->of_type( 'theme' );
 
 		foreach ( $themes as $product ) {
+			$this->register_available_update( $product, $transient->response );
+		}
+
+		return $transient;
+	}
+
+	/**
+	 * Filter: 'pre_set_site_transient_update_plugins'
+	 *
+	 * @param \stdClass $transient
+	 * @return \stdClass
+	 */
+	public function inject_plugin_updates( \stdClass $transient ): \stdClass {
+		if ( empty( $transient->checked ) ) {
+			return $transient;
+		}
+
+		$plugins = $this->registry->of_type( 'plugin' );
+
+		foreach ( $plugins as $product ) {
 			$result = $this->check_product( $product );
 
-			if ( $result === null ) {
+			if ( $result === null || ! $result->is_update_available( $product->get_installed_version() ) ) {
 				continue;
 			}
 
-			if ( ! $result->is_update_available( $product->get_installed_version() ) ) {
-				continue;
+			$this->register_download_watch( $product, $result );
+
+			$slug = dirname( $product->get_id() );
+			if ( $slug === '.' || $slug === '' ) {
+				$slug = $product->get_id();
 			}
 
-			// Tell the download proxy to watch this URL.
-			if ( $result->requires_auth ) {
-				$this->download_proxy->watch( $result->package_url );
-			}
-
-			$transient->response[ $product->get_id() ] = [
-				'theme'       => $product->get_id(),
+			$transient->response[ $product->get_id() ] = (object) [
+				'id'          => $product->get_update_source()['repository'] ?? $product->get_id(),
+				'slug'        => $slug,
+				'plugin'      => $product->get_id(),
 				'new_version' => $result->version,
 				'url'         => $result->details_url,
 				'package'     => $result->package_url,
 			];
 
-			/**
-			 * Fires when an update is detected for a managed product.
-			 *
-			 * @param ProductInterface $product The product with an available update.
-			 * @param UpdateResult     $result  The resolved update.
-			 */
 			do_action( 'interplay_services_update_available', $product, $result );
 		}
 
@@ -199,6 +215,51 @@ class UpdateManager {
 		];
 	}
 
+	/**
+	 * Filter: 'plugins_api'
+	 *
+	 * @param false|object|array $result
+	 * @param string             $action
+	 * @param \stdClass          $args
+	 * @return false|object|array
+	 */
+	public function filter_plugins_api( $result, string $action, \stdClass $args ) {
+		if ( $action !== 'plugin_information' ) {
+			return $result;
+		}
+
+		$slug = (string) ( $args->slug ?? '' );
+		$product = $this->registry->find( $slug . '/' . $slug . '.php' );
+
+		if ( $product === null || $product->get_type() !== 'plugin' ) {
+			return $result;
+		}
+
+		$update = $this->check_product( $product );
+		if ( $update === null ) {
+			return $result;
+		}
+
+		return (object) [
+			'name'          => $product->get_name(),
+			'slug'          => $slug,
+			'version'       => $update->version,
+			'author'        => 'the Interplay team',
+			'author_profile'=> 'https://interplay.design',
+			'homepage'      => $update->details_url ?: 'https://interplay.design',
+			'sections'      => [
+				'description' => sprintf( '<p>%s</p>', esc_html( $product->get_name() . ' by Interplay' ) ),
+				'changelog'   => sprintf(
+					'<p><a href="%s" target="_blank" rel="noopener">%s</a></p>',
+					esc_url( $update->details_url ),
+					esc_html__( 'View release notes on GitHub', 'interplay-services' )
+				),
+			],
+			'download_link' => $update->package_url,
+			'last_updated'  => gmdate( 'Y-m-d' ),
+		];
+	}
+
 	// ─── Cache busting ────────────────────────────────────────────────────────
 
 	/**
@@ -226,5 +287,41 @@ class UpdateManager {
 		}
 
 		return $driver->fetch_latest( $product );
+	}
+
+	/**
+	 * @param array<string,mixed> $response
+	 */
+	private function register_available_update( ProductInterface $product, array &$response ): void {
+		$result = $this->check_product( $product );
+
+		if ( $result === null || ! $result->is_update_available( $product->get_installed_version() ) ) {
+			return;
+		}
+
+		$this->register_download_watch( $product, $result );
+
+		$response[ $product->get_id() ] = [
+			'theme'       => $product->get_id(),
+			'new_version' => $result->version,
+			'url'         => $result->details_url,
+			'package'     => $result->package_url,
+		];
+
+		do_action( 'interplay_services_update_available', $product, $result );
+	}
+
+	private function register_download_watch( ProductInterface $product, UpdateResult $result ): void {
+		if ( ! $result->requires_auth ) {
+			return;
+		}
+
+		$this->download_proxy->watch(
+			$result->package_url,
+			[
+				'type' => $product->get_type(),
+				'id'   => $product->get_id(),
+			]
+		);
 	}
 }
