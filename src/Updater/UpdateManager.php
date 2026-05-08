@@ -85,6 +85,12 @@ class UpdateManager {
 		add_filter( 'pre_set_site_transient_update_themes', [ $this, 'inject_theme_updates' ] );
 		add_filter( 'pre_set_site_transient_update_plugins', [ $this, 'inject_plugin_updates' ] );
 
+		// Re-register package watches whenever WordPress reads a cached transient.
+		// This keeps the download proxy aware of the package URL during the actual
+		// upgrade request, not just when the transient is first generated.
+		add_filter( 'site_transient_update_themes', [ $this, 'reregister_theme_watches' ] );
+		add_filter( 'site_transient_update_plugins', [ $this, 'reregister_plugin_watches' ] );
+
 		// Provide metadata to the theme details modal.
 		add_filter( 'themes_api', [ $this, 'filter_themes_api' ], 10, 3 );
 		add_filter( 'plugins_api', [ $this, 'filter_plugins_api' ], 10, 3 );
@@ -323,5 +329,68 @@ class UpdateManager {
 				'id'   => $product->get_id(),
 			]
 		);
+	}
+
+	/**
+	 * Filter: 'site_transient_update_themes'
+	 *
+	 * Re-register package watches from the cached theme transient so the
+	 * download proxy still has package metadata in the upgrade request.
+	 *
+	 * @param mixed $transient
+	 * @return mixed
+	 */
+	public function reregister_theme_watches( $transient ) {
+		if ( ! is_object( $transient ) || empty( $transient->response ) ) {
+			return $transient;
+		}
+
+		foreach ( $this->registry->of_type( 'theme' ) as $product ) {
+			$entry = $transient->response[ $product->get_id() ] ?? null;
+			$package = is_array( $entry ) ? (string) ( $entry['package'] ?? '' ) : '';
+
+			if ( $package !== '' ) {
+				$this->download_proxy->watch(
+					$package,
+					[
+						'type' => 'theme',
+						'id'   => $product->get_id(),
+					]
+				);
+			}
+		}
+
+		return $transient;
+	}
+
+	/**
+	 * Filter: 'site_transient_update_plugins'
+	 *
+	 * Re-register package watches from the cached plugin transient.
+	 *
+	 * @param mixed $transient
+	 * @return mixed
+	 */
+	public function reregister_plugin_watches( $transient ) {
+		if ( ! is_object( $transient ) || empty( $transient->response ) ) {
+			return $transient;
+		}
+
+		foreach ( $this->registry->of_type( 'plugin' ) as $product ) {
+			$entry = $transient->response[ $product->get_id() ] ?? null;
+			$package = is_object( $entry ) ? (string) ( $entry->package ?? '' ) : '';
+
+			if ( $package !== '' ) {
+				$this->download_proxy->watch(
+					$package,
+					[
+						'type' => 'plugin',
+						'id'   => $product->get_id(),
+					]
+				);
+			}
+		}
+
+		return $transient;
 	}
 }
