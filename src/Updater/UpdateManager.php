@@ -324,6 +324,14 @@ class UpdateManager {
 	// ─── Internal helpers ─────────────────────────────────────────────────────
 
 	private function check_product( ProductInterface $product ): ?UpdateResult {
+		// Don't fire remote checks during an in-flight upgrade. Between
+		// upgrader_clear_destination (deletes old plugin folder) and the
+		// final move_dir, autoloading any lazily-referenced class will fail
+		// with "class not found". Skip the check; cached transients are fine.
+		if ( $this->is_upgrade_in_progress() ) {
+			return null;
+		}
+
 		$driver = $this->driver_for( $product );
 		if ( $driver === null ) {
 			return null;
@@ -335,6 +343,16 @@ class UpdateManager {
 			$this->log_exception( 'check_product:' . $product->get_id(), $e );
 			return null;
 		}
+	}
+
+	private function is_upgrade_in_progress(): bool {
+		return doing_action( 'upgrader_pre_install' )
+			|| doing_action( 'upgrader_pre_download' )
+			|| doing_action( 'upgrader_source_selection' )
+			|| doing_action( 'upgrader_clear_destination' )
+			|| doing_action( 'upgrader_install_package_result' )
+			|| doing_action( 'upgrader_post_install' )
+			|| doing_action( 'upgrader_process_complete' );
 	}
 
 	/**

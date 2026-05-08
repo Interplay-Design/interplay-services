@@ -165,6 +165,18 @@ final class Plugin {
 		$this->initialized = true;
 
 		try {
+			// Pre-load the lazily-referenced classes so the autoloader never
+			// has to resolve them mid-upgrade — during the brief window when
+			// WP_Upgrader has deleted the old plugin folder but not yet placed
+			// the new one, autoload-from-disk would fail with "class not found".
+			class_exists( Updater\Contracts\UpdateResult::class );
+			class_exists( Updater\Contracts\UpdateSourceInterface::class );
+			class_exists( Updater\Sources\GitHubReleasesSource::class );
+			class_exists( Updater\InstallSlugResolver::class );
+			class_exists( Updater\DownloadProxy::class );
+			class_exists( Registry\Products\IntroTheme::class );
+			class_exists( Registry\Products\InterplayServicesPlugin::class );
+
 			// Load product definitions (registers Intro theme etc.)
 			$this->make( Registry\ProductRegistry::class )->load_defaults();
 

@@ -26,13 +26,25 @@ class InstallSlugResolver {
 	 * @param array<string,array<string,string>>   $watched_packages
 	 */
 	public function resolve_expected_slug( string $type, array $hook_extra, array $watched_packages ): string {
+		// WP 6.7+ frequently passes hook_extra without a 'type' key — infer it
+		// from the presence of 'plugin' or 'theme' so downstream lookups work.
+		if ( $type === '' ) {
+			if ( ! empty( $hook_extra['plugin'] ) ) {
+				$type = 'plugin';
+			} elseif ( ! empty( $hook_extra['theme'] ) ) {
+				$type = 'theme';
+			}
+		}
+
+		// Prefer watched-package metadata: it carries the canonical product ID.
+		// Trust the watched type even when hook_extra didn't supply one.
 		$package = (string) ( $hook_extra['package'] ?? '' );
 		if ( $package !== '' && isset( $watched_packages[ $package ] ) ) {
 			$watched_type = (string) ( $watched_packages[ $package ]['type'] ?? '' );
 			$watched_id   = (string) ( $watched_packages[ $package ]['id'] ?? '' );
 
-			if ( $watched_type === $type && $watched_id !== '' ) {
-				return $this->slug_from_product_id( $type, $watched_id );
+			if ( $watched_id !== '' && ( $type === '' || $watched_type === $type ) ) {
+				return $this->slug_from_product_id( $watched_type, $watched_id );
 			}
 		}
 
