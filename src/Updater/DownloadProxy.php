@@ -172,6 +172,23 @@ class DownloadProxy {
 		}
 
 		if ( $expected === '' ) {
+			$package = (string) ( $hook_extra['package'] ?? '' );
+			if ( $package !== '' && isset( $this->watched_packages[ $package ] ) ) {
+				$watched_type = (string) ( $this->watched_packages[ $package ]['type'] ?? '' );
+				$watched_id   = (string) ( $this->watched_packages[ $package ]['id'] ?? '' );
+
+				if ( $watched_type === 'theme' ) {
+					$expected = sanitize_title( $watched_id );
+				} elseif ( $watched_type === 'plugin' ) {
+					$expected = dirname( $watched_id );
+					if ( $expected === '.' ) {
+						$expected = '';
+					}
+				}
+			}
+		}
+
+		if ( $expected === '' ) {
 			return $source;
 		}
 

@@ -3,7 +3,7 @@
  * Plugin Name:       Interplay Services
  * Plugin URI:        https://interplay.design
  * Description:       Central service layer for Interplay products: update delivery, license enforcement, and product registry.
- * Version:           0.1.1
+ * Version:           0.1.2
  * Requires at least: 6.7
  * Requires PHP:      7.4
  * Author:            the Interplay team
@@ -27,7 +27,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-define( 'INTERPLAY_SERVICES_VERSION',   '0.1.1' );
+define( 'INTERPLAY_SERVICES_VERSION',   '0.1.2' );
 define( 'INTERPLAY_SERVICES_FILE',      __FILE__ );
 define( 'INTERPLAY_SERVICES_DIR',       plugin_dir_path( __FILE__ ) );
 define( 'INTERPLAY_SERVICES_URL',       plugin_dir_url( __FILE__ ) );

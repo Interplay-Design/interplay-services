@@ -31,7 +31,24 @@ class IntroTheme implements ProductInterface {
 
 	public function get_installed_version(): string {
 		$theme = wp_get_theme( 'intro' );
-		return $theme->exists() ? $theme->get( 'Version' ) : '0.0.0';
+		if ( $theme->exists() ) {
+			return (string) $theme->get( 'Version' );
+		}
+
+		// Fallback: if updates temporarily activate a hashed Intro folder,
+		// still report the installed Intro version instead of 0.0.0.
+		$active_stylesheet = (string) get_stylesheet();
+		if ( $active_stylesheet !== '' ) {
+			$active_theme = wp_get_theme( $active_stylesheet );
+			if ( $active_theme->exists() ) {
+				$active_name = strtolower( (string) $active_theme->get( 'Name' ) );
+				if ( strpos( $active_name, 'intro' ) !== false ) {
+					return (string) $active_theme->get( 'Version' );
+				}
+			}
+		}
+
+		return '0.0.0';
 	}
 
 	public function requires_license(): bool {
