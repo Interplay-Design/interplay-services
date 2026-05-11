@@ -15,6 +15,8 @@
 
 namespace Interplay\Services\Http;
 
+use Interplay\Services\Log\Logger;
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
@@ -163,9 +165,6 @@ class Client {
 	}
 
 	private function log_error( string $message, string $url ): void {
-		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions
-			error_log( "[Interplay Services] HTTP error: {$message} ({$url})" );
-		}
+		Logger::instance()->warn( 'HTTP error: ' . $message, [ 'url' => $url ] );
 	}
 }

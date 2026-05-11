@@ -17,6 +17,7 @@ namespace Interplay\Services\Admin;
 
 use Interplay\Services\Http\Client;
 use Interplay\Services\License\LicenseManager;
+use Interplay\Services\Log\Logger;
 use Interplay\Services\Registry\ProductRegistry;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -42,6 +43,7 @@ class SettingsPage {
 		// AJAX: manual update check / cache-bust.
 		add_action( 'wp_ajax_interplay_services_check_updates', [ $this, 'ajax_check_updates' ] );
 		add_action( 'wp_ajax_interplay_services_create_issue', [ $this, 'ajax_create_issue' ] );
+		add_action( 'wp_ajax_interplay_services_clear_log', [ $this, 'ajax_clear_log' ] );
 	}
 
 	// ─── Menu ─────────────────────────────────────────────────────────────────
@@ -169,6 +171,9 @@ class SettingsPage {
 				<span id="interplay-check-updates-status" style="margin-left:10px;"></span>
 			</p>
 
+			<h2><?php esc_html_e( 'Activity Log', 'interplay-services' ); ?></h2>
+			<?php $this->render_activity_log(); ?>
+
 			<h2><?php esc_html_e( 'Open Intro Issues', 'interplay-services' ); ?></h2>
 			<?php $this->render_open_issues_table(); ?>
 
@@ -234,6 +239,20 @@ class SettingsPage {
 				.catch(function() {
 					status.textContent = '<?php echo esc_js( __( 'Request failed.', 'interplay-services' ) ); ?>';
 				});
+			});
+		}
+
+		var clearLogBtn = document.getElementById('interplay-clear-log');
+		if (clearLogBtn) {
+			clearLogBtn.addEventListener('click', function() {
+				if (!confirm('<?php echo esc_js( __( 'Clear the activity log?', 'interplay-services' ) ); ?>')) {
+					return;
+				}
+				fetch(ajaxurl, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+					body: 'action=interplay_services_clear_log&_wpnonce=<?php echo esc_js( wp_create_nonce( 'interplay_services_clear_log' ) ); ?>'
+				}).then(function(r){ return r.json(); }).then(function(){ location.reload(); });
 			});
 		}
 		</script>
@@ -650,6 +669,66 @@ class SettingsPage {
 		return gmdate( 'Y-m-d H:i', $timestamp ) . ' UTC';
 	}
 
+	// ─── Activity log ─────────────────────────────────────────────────────────
+
+	private function render_activity_log(): void {
+		$entries = Logger::instance()->get_recent( 50 );
+		?>
+		<p class="description" style="margin-bottom:8px;">
+			<?php esc_html_e( 'Most recent first. Errors and warnings are always recorded; debug entries appear only when WP_DEBUG is on. Tail wp-content/debug.log for the live stream.', 'interplay-services' ); ?>
+		</p>
+		<?php if ( empty( $entries ) ) : ?>
+			<p style="color:#666;font-style:italic;"><?php esc_html_e( 'No activity recorded yet.', 'interplay-services' ); ?></p>
+		<?php else : ?>
+			<table class="widefat striped" style="max-width:1100px;">
+				<thead>
+					<tr>
+						<th style="width:160px;"><?php esc_html_e( 'Time', 'interplay-services' ); ?></th>
+						<th style="width:80px;"><?php esc_html_e( 'Level', 'interplay-services' ); ?></th>
+						<th><?php esc_html_e( 'Message', 'interplay-services' ); ?></th>
+					</tr>
+				</thead>
+				<tbody>
+				<?php foreach ( $entries as $entry ) :
+					$time    = (int) ( $entry['time'] ?? 0 );
+					$level   = (string) ( $entry['level'] ?? '' );
+					$message = (string) ( $entry['message'] ?? '' );
+					$context = (array) ( $entry['context'] ?? [] );
+					$colour  = $this->level_colour( $level );
+				?>
+					<tr>
+						<td><code><?php echo esc_html( $time ? gmdate( 'Y-m-d H:i:s', $time ) . ' UTC' : '—' ); ?></code></td>
+						<td><strong style="color:<?php echo esc_attr( $colour ); ?>;"><?php echo esc_html( strtoupper( $level ) ); ?></strong></td>
+						<td>
+							<div><?php echo esc_html( $message ); ?></div>
+							<?php if ( ! empty( $context ) ) : ?>
+								<details style="margin-top:4px;">
+									<summary style="cursor:pointer;color:#666;font-size:11px;"><?php esc_html_e( 'Context', 'interplay-services' ); ?></summary>
+									<pre style="background:#f6f7f7;padding:8px;border-radius:4px;font-size:11px;overflow:auto;max-height:200px;margin:4px 0 0;"><?php echo esc_html( wp_json_encode( $context, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) ); ?></pre>
+								</details>
+							<?php endif; ?>
+						</td>
+					</tr>
+				<?php endforeach; ?>
+				</tbody>
+			</table>
+			<p style="margin-top:8px;">
+				<button type="button" id="interplay-clear-log" class="button button-secondary">
+					<?php esc_html_e( 'Clear log', 'interplay-services' ); ?>
+				</button>
+			</p>
+		<?php endif;
+	}
+
+	private function level_colour( string $level ): string {
+		switch ( $level ) {
+			case Logger::LEVEL_ERROR: return '#d63638';
+			case Logger::LEVEL_WARN:  return '#dba617';
+			case Logger::LEVEL_INFO:  return '#2271b1';
+			default:                  return '#666';
+		}
+	}
+
 	// ─── AJAX ─────────────────────────────────────────────────────────────────
 
 	public function ajax_check_updates(): void {
@@ -745,6 +824,17 @@ class SettingsPage {
 		}
 
 		wp_send_json_success( [ 'message' => __( 'Issue created.', 'interplay-services' ) ] );
+	}
+
+	public function ajax_clear_log(): void {
+		check_ajax_referer( 'interplay_services_clear_log' );
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Insufficient permissions.', 'interplay-services' ) ] );
+		}
+
+		Logger::instance()->clear();
+		wp_send_json_success( [ 'message' => __( 'Log cleared.', 'interplay-services' ) ] );
 	}
 
 	// ─── Config notice ────────────────────────────────────────────────────────

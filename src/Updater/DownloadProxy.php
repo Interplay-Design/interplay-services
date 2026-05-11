@@ -20,6 +20,7 @@
 namespace Interplay\Services\Updater;
 
 use Interplay\Services\Http\Client;
+use Interplay\Services\Log\Logger;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -70,14 +71,17 @@ class DownloadProxy {
 	 * @return bool|string|\WP_Error  Path to the downloaded temp file, or the original $reply.
 	 */
 	public function maybe_proxy_download( $reply, $package, $upgrader ) {
-		$this->log( sprintf(
-			'pre_download enter: package=%s should_proxy=%s watched=%s',
-			is_string( $package ) ? $package : '<' . gettype( $package ) . '>',
-			is_string( $package ) && $this->should_proxy( $package ) ? 'yes' : 'no',
-			wp_json_encode( array_keys( $this->watched_packages ) )
-		) );
+		$log        = Logger::instance();
+		$should     = is_string( $package ) && $this->should_proxy( $package );
+		$package_s  = is_string( $package ) ? $package : '<' . gettype( $package ) . '>';
 
-		if ( ! is_string( $package ) || ! $this->should_proxy( $package ) ) {
+		$log->debug( 'pre_download enter', [
+			'package'      => $package_s,
+			'should_proxy' => $should,
+			'watched_keys' => array_keys( $this->watched_packages ),
+		] );
+
+		if ( ! is_string( $package ) || ! $should ) {
 			return $reply;
 		}
 
@@ -95,11 +99,15 @@ class DownloadProxy {
 
 		$tmp_file = wp_tempnam( $base_name );
 		if ( ! $tmp_file ) {
+			$log->error( 'wp_tempnam returned false', [ 'package' => $package ] );
 			return new \WP_Error(
 				'interplay_download_failed',
 				__( 'Interplay Services could not create a temporary file for download.', 'interplay-services' )
 			);
 		}
+
+		$log->info( 'download starting', [ 'package' => $package, 'tmp' => $tmp_file ] );
+		$start = microtime( true );
 
 		$response = $this->http->get(
 			$package,
@@ -113,6 +121,11 @@ class DownloadProxy {
 
 		if ( is_wp_error( $response ) ) {
 			@unlink( $tmp_file );
+			$log->error( 'download wp_error', [
+				'package' => $package,
+				'message' => $response->get_error_message(),
+				'code'    => $response->get_error_code(),
+			] );
 			return new \WP_Error(
 				'interplay_download_failed',
 				sprintf(
@@ -126,6 +139,7 @@ class DownloadProxy {
 		$code = (int) wp_remote_retrieve_response_code( $response );
 		if ( $code < 200 || $code >= 300 ) {
 			@unlink( $tmp_file );
+			$log->error( 'download non-2xx', [ 'package' => $package, 'http_code' => $code ] );
 			return new \WP_Error(
 				'interplay_download_failed',
 				sprintf(
@@ -140,13 +154,25 @@ class DownloadProxy {
 		// (We pass it explicitly so we don't rely on $response['filename'].)
 		clearstatcache( true, $tmp_file );
 
-		if ( ! is_readable( $tmp_file ) || filesize( $tmp_file ) === 0 ) {
+		$size = is_readable( $tmp_file ) ? (int) filesize( $tmp_file ) : 0;
+		if ( ! is_readable( $tmp_file ) || $size === 0 ) {
 			@unlink( $tmp_file );
+			$log->error( 'download empty or unreadable', [
+				'package' => $package,
+				'tmp'     => $tmp_file,
+				'size'    => $size,
+			] );
 			return new \WP_Error(
 				'interplay_download_failed',
 				__( 'Interplay Services: downloaded file is empty or unreadable.', 'interplay-services' )
 			);
 		}
+
+		$log->info( 'download complete', [
+			'package' => $package,
+			'bytes'   => $size,
+			'ms'      => (int) ( ( microtime( true ) - $start ) * 1000 ),
+		] );
 
 		return $tmp_file;
 	}
@@ -186,25 +212,20 @@ class DownloadProxy {
 		try {
 			return $this->do_normalize_source_selection( $source, $remote_source, $upgrader, $hook_extra );
 		} catch ( \Throwable $e ) {
-			$this->log( sprintf(
-				'normalize_source_selection threw %s: %s in %s:%d',
-				get_class( $e ),
-				$e->getMessage(),
-				$e->getFile(),
-				$e->getLine()
-			) );
+			Logger::instance()->exception( 'DownloadProxy.normalize_source_selection', $e );
 			return $source;
 		}
 	}
 
 	private function do_normalize_source_selection( $source, $remote_source, $upgrader, $hook_extra ) {
-		$this->log( sprintf(
-			'source_selection enter: source=%s hook_extra=%s last_proxied=%s watched=%s',
-			is_string( $source ) ? $source : '<' . gettype( $source ) . '>',
-			wp_json_encode( $hook_extra ),
-			$this->last_proxied_url,
-			wp_json_encode( array_keys( $this->watched_packages ) )
-		) );
+		$log = Logger::instance();
+
+		$log->debug( 'source_selection enter', [
+			'source'       => is_string( $source ) ? $source : '<' . gettype( $source ) . '>',
+			'hook_extra'   => $hook_extra,
+			'last_proxied' => $this->last_proxied_url,
+			'watched_keys' => array_keys( $this->watched_packages ),
+		] );
 
 		if ( ! is_string( $source ) || $source === '' ) {
 			return $source;
@@ -221,9 +242,13 @@ class DownloadProxy {
 		}
 
 		$expected = $this->slug_resolver->resolve_expected_slug( $type, $hook_extra, $this->watched_packages );
-		$this->log( sprintf( 'resolved expected slug for type=%s: "%s"', $type, $expected ) );
+		$log->debug( 'resolved expected slug', [ 'type' => $type, 'expected' => $expected ] );
 
 		if ( $expected === '' ) {
+			$log->warn( 'source_selection: expected slug empty, leaving source untouched', [
+				'type'       => $type,
+				'hook_extra' => $hook_extra,
+			] );
 			return $source;
 		}
 
@@ -250,24 +275,19 @@ class DownloadProxy {
 		}
 
 		$renamed = @rename( $source_no_trailing, $normalized );
-		$this->log( sprintf(
-			'rename %s -> %s : %s',
-			$source_no_trailing,
-			$normalized,
-			$renamed ? 'OK' : 'FAILED'
-		) );
 
 		if ( $renamed ) {
+			$log->info( 'source folder renamed', [
+				'from' => $current,
+				'to'   => $expected,
+			] );
 			return substr( $source, -1 ) === '/' ? trailingslashit( $normalized ) : $normalized;
 		}
 
+		$log->error( 'source folder rename FAILED', [
+			'from' => $source_no_trailing,
+			'to'   => $normalized,
+		] );
 		return $source;
-	}
-
-	private function log( string $message ): void {
-		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions
-			error_log( '[Interplay Services][DownloadProxy] ' . $message );
-		}
 	}
 }

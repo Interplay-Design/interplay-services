@@ -25,6 +25,7 @@
 namespace Interplay\Services\Updater;
 
 use Interplay\Services\Http\Client;
+use Interplay\Services\Log\Logger;
 use Interplay\Services\Registry\Contracts\ProductInterface;
 use Interplay\Services\Registry\ProductRegistry;
 use Interplay\Services\Updater\Contracts\UpdateResult;
@@ -165,9 +166,26 @@ class UpdateManager {
 			foreach ( $this->registry->of_type( 'plugin' ) as $product ) {
 				$result = $this->check_product( $product );
 
-				if ( $result === null || ! $result->is_update_available( $product->get_installed_version() ) ) {
+				if ( $result === null ) {
 					continue;
 				}
+
+				$installed = $product->get_installed_version();
+				if ( ! $result->is_update_available( $installed ) ) {
+					Logger::instance()->debug( 'plugin up-to-date', [
+						'product'   => $product->get_id(),
+						'installed' => $installed,
+						'latest'    => $result->version,
+					] );
+					continue;
+				}
+
+				Logger::instance()->info( 'plugin update available', [
+					'product'     => $product->get_id(),
+					'installed'   => $installed,
+					'new_version' => $result->version,
+					'package'     => $result->package_url,
+				] );
 
 				$this->register_download_watch( $product, $result );
 
@@ -361,9 +379,26 @@ class UpdateManager {
 	private function register_available_update( ProductInterface $product, array &$response ): void {
 		$result = $this->check_product( $product );
 
-		if ( $result === null || ! $result->is_update_available( $product->get_installed_version() ) ) {
+		if ( $result === null ) {
 			return;
 		}
+
+		$installed = $product->get_installed_version();
+		if ( ! $result->is_update_available( $installed ) ) {
+			Logger::instance()->debug( 'theme up-to-date', [
+				'product'   => $product->get_id(),
+				'installed' => $installed,
+				'latest'    => $result->version,
+			] );
+			return;
+		}
+
+		Logger::instance()->info( 'theme update available', [
+			'product'     => $product->get_id(),
+			'installed'   => $installed,
+			'new_version' => $result->version,
+			'package'     => $result->package_url,
+		] );
 
 		$this->register_download_watch( $product, $result );
 
@@ -394,16 +429,7 @@ class UpdateManager {
 	}
 
 	private function log_exception( string $context, \Throwable $e ): void {
-		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions
-			error_log( sprintf(
-				'[Interplay Services] %s: %s in %s:%d',
-				$context,
-				$e->getMessage(),
-				$e->getFile(),
-				$e->getLine()
-			) );
-		}
+		Logger::instance()->exception( 'UpdateManager.' . $context, $e );
 	}
 
 	/**

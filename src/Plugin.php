@@ -14,6 +14,7 @@
 namespace Interplay\Services;
 
 use Interplay\Services\Admin\SettingsPage;
+use Interplay\Services\Log\Logger;
 use Interplay\Services\Registry\ProductRegistry;
 use Interplay\Services\Updater\UpdateManager;
 
@@ -169,6 +170,7 @@ final class Plugin {
 			// has to resolve them mid-upgrade — during the brief window when
 			// WP_Upgrader has deleted the old plugin folder but not yet placed
 			// the new one, autoload-from-disk would fail with "class not found".
+			class_exists( Log\Logger::class );
 			class_exists( Updater\Contracts\UpdateResult::class );
 			class_exists( Updater\Contracts\UpdateSourceInterface::class );
 			class_exists( Updater\Sources\GitHubReleasesSource::class );
@@ -188,15 +190,7 @@ final class Plugin {
 				$this->make( Admin\SettingsPage::class )->register_hooks();
 			}
 		} catch ( \Throwable $e ) {
-			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-				// phpcs:ignore WordPress.PHP.DevelopmentFunctions
-				error_log( sprintf(
-					'[Interplay Services] init failure: %s in %s:%d',
-					$e->getMessage(),
-					$e->getFile(),
-					$e->getLine()
-				) );
-			}
+			Logger::instance()->exception( 'Plugin.init', $e );
 			// Don't let a service-wiring exception take down WordPress.
 		}
 	}
