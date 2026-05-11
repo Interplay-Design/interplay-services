@@ -18,7 +18,9 @@ namespace Interplay\Services\Admin;
 use Interplay\Services\Http\Client;
 use Interplay\Services\License\LicenseManager;
 use Interplay\Services\Log\Logger;
+use Interplay\Services\Registry\Contracts\ProductInterface;
 use Interplay\Services\Registry\ProductRegistry;
+use Interplay\Services\Updater\UpdateManager;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -33,6 +35,7 @@ class SettingsPage {
 		private readonly ProductRegistry $registry,
 		private readonly LicenseManager  $license,
 		private readonly Client          $http,
+		private readonly UpdateManager   $updates,
 	) {}
 
 	public function register_hooks(): void {
@@ -44,6 +47,7 @@ class SettingsPage {
 		add_action( 'wp_ajax_interplay_services_check_updates', [ $this, 'ajax_check_updates' ] );
 		add_action( 'wp_ajax_interplay_services_create_issue', [ $this, 'ajax_create_issue' ] );
 		add_action( 'wp_ajax_interplay_services_clear_log', [ $this, 'ajax_clear_log' ] );
+		add_action( 'wp_ajax_interplay_services_update_product', [ $this, 'ajax_update_product' ] );
 	}
 
 	// ─── Menu ─────────────────────────────────────────────────────────────────
@@ -184,22 +188,78 @@ class SettingsPage {
 		</div>
 
 		<script>
-		document.getElementById('interplay-check-updates').addEventListener('click', function() {
-			var status = document.getElementById('interplay-check-updates-status');
-			status.textContent = '<?php echo esc_js( __( 'Checking…', 'interplay-services' ) ); ?>';
-			fetch(ajaxurl, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-				body: 'action=interplay_services_check_updates&_wpnonce=<?php echo esc_js( wp_create_nonce( 'interplay_services_check_updates' ) ); ?>'
-			})
-			.then(r => r.json())
-			.then(data => {
-				status.textContent = data.data?.message ?? '<?php echo esc_js( __( 'Done.', 'interplay-services' ) ); ?>';
-			})
-			.catch(() => {
-				status.textContent = '<?php echo esc_js( __( 'Request failed.', 'interplay-services' ) ); ?>';
+		(function() {
+			var checkNonce  = '<?php echo esc_js( wp_create_nonce( 'interplay_services_check_updates' ) ); ?>';
+			var updateNonce = '<?php echo esc_js( wp_create_nonce( 'interplay_services_update_product' ) ); ?>';
+			var msgChecking = '<?php echo esc_js( __( 'Checking…', 'interplay-services' ) ); ?>';
+			var msgDone     = '<?php echo esc_js( __( 'Done.', 'interplay-services' ) ); ?>';
+			var msgFailed   = '<?php echo esc_js( __( 'Request failed.', 'interplay-services' ) ); ?>';
+			var msgUpdating = '<?php echo esc_js( __( 'Updating…', 'interplay-services' ) ); ?>';
+
+			function replaceRows(html) {
+				if (typeof html !== 'string') return;
+				var tbody = document.querySelector('#interplay-products-table tbody');
+				if (tbody) tbody.innerHTML = html;
+			}
+
+			function postForm(body) {
+				return fetch(ajaxurl, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+					credentials: 'same-origin',
+					body: body
+				}).then(function(r) { return r.json(); });
+			}
+
+			document.getElementById('interplay-check-updates').addEventListener('click', function() {
+				var status = document.getElementById('interplay-check-updates-status');
+				status.textContent = msgChecking;
+				postForm('action=interplay_services_check_updates&_wpnonce=' + encodeURIComponent(checkNonce))
+					.then(function(data) {
+						var d = data && data.data ? data.data : {};
+						status.textContent = d.message || msgDone;
+						replaceRows(d.rows);
+					})
+					.catch(function() { status.textContent = msgFailed; });
 			});
-		});
+
+			// Update buttons (delegated so AJAX-replaced rows still work).
+			document.getElementById('interplay-products-table').addEventListener('click', function(e) {
+				var btn = e.target.closest('.ips-update-btn');
+				if (!btn) return;
+				var productId   = btn.getAttribute('data-product-id');
+				var productType = btn.getAttribute('data-product-type');
+				if (!productId || !productType) return;
+
+				var originalLabel = btn.textContent;
+				btn.disabled = true;
+				btn.textContent = msgUpdating;
+				var status = document.getElementById('interplay-check-updates-status');
+				if (status) status.textContent = msgUpdating + ' ' + productId;
+
+				var body = 'action=interplay_services_update_product'
+					+ '&_wpnonce=' + encodeURIComponent(updateNonce)
+					+ '&product_id=' + encodeURIComponent(productId)
+					+ '&product_type=' + encodeURIComponent(productType);
+
+				postForm(body)
+					.then(function(data) {
+						var d = data && data.data ? data.data : {};
+						if (status) status.textContent = d.message || msgDone;
+						if (d.rows) {
+							replaceRows(d.rows);
+						} else {
+							btn.disabled = false;
+							btn.textContent = originalLabel;
+						}
+					})
+					.catch(function() {
+						btn.disabled = false;
+						btn.textContent = originalLabel;
+						if (status) status.textContent = msgFailed;
+					});
+			});
+		})();
 
 		var issueForm = document.getElementById('interplay-create-issue-form');
 		if (issueForm) {
@@ -405,48 +465,104 @@ class SettingsPage {
 	// ─── Products table ───────────────────────────────────────────────────────
 
 	private function render_products_table(): void {
-		$products = $this->registry->all();
-		if ( empty( $products ) ) {
-			echo '<p>' . esc_html__( 'No products registered.', 'interplay-services' ) . '</p>';
-			return;
-		}
 		?>
-		<table class="widefat striped" style="max-width:800px">
+		<table id="interplay-products-table" class="widefat striped" style="max-width:1000px">
 			<thead>
 				<tr>
 					<th><?php esc_html_e( 'Product', 'interplay-services' ); ?></th>
 					<th><?php esc_html_e( 'Type', 'interplay-services' ); ?></th>
 					<th><?php esc_html_e( 'Installed', 'interplay-services' ); ?></th>
+					<th><?php esc_html_e( 'GitHub Release', 'interplay-services' ); ?></th>
 					<th><?php esc_html_e( 'Update Source', 'interplay-services' ); ?></th>
 					<th><?php esc_html_e( 'License', 'interplay-services' ); ?></th>
+					<th><?php esc_html_e( 'Action', 'interplay-services' ); ?></th>
 				</tr>
 			</thead>
 			<tbody>
-			<?php foreach ( $products as $product ) :
-				$source = $product->get_update_source();
-			?>
-				<tr>
-					<td><strong><?php echo esc_html( $product->get_name() ); ?></strong></td>
-					<td><?php echo esc_html( $product->get_type() ); ?></td>
-					<td><?php echo esc_html( $product->get_installed_version() ); ?></td>
-					<td>
-						<?php echo esc_html( $source['driver'] ?? '—' ); ?>
-						<?php if ( ! empty( $source['repository'] ) ) : ?>
-							&nbsp;(<code><?php echo esc_html( $source['repository'] ); ?></code>)
-						<?php endif; ?>
-					</td>
-					<td>
-						<?php if ( $product->requires_license() ) : ?>
-							<?php esc_html_e( 'Required', 'interplay-services' ); ?>
-						<?php else : ?>
-							<span style="color:#888"><?php esc_html_e( 'None', 'interplay-services' ); ?></span>
-						<?php endif; ?>
-					</td>
-				</tr>
-			<?php endforeach; ?>
+				<?php echo $this->render_products_table_rows(); // phpcs:ignore WordPress.Security.EscapeOutput ?>
 			</tbody>
 		</table>
 		<?php
+	}
+
+	/**
+	 * Render only the <tr> rows for the products table. Used both for the
+	 * initial server render and for AJAX refresh responses (so the JS can
+	 * just innerHTML the tbody).
+	 */
+	private function render_products_table_rows(): string {
+		$products = $this->registry->all();
+		if ( empty( $products ) ) {
+			return '<tr><td colspan="7">'
+				. esc_html__( 'No products registered.', 'interplay-services' )
+				. '</td></tr>';
+		}
+
+		ob_start();
+		foreach ( $products as $product ) {
+			echo $this->render_product_row( $product ); // phpcs:ignore WordPress.Security.EscapeOutput
+		}
+		return (string) ob_get_clean();
+	}
+
+	private function render_product_row( ProductInterface $product ): string {
+		$source           = $product->get_update_source();
+		$installed        = $product->get_installed_version();
+		$latest_result    = $this->updates->latest_for_product( $product );
+		$latest_version   = $latest_result?->version ?? '';
+		$update_available = $latest_result !== null && $latest_result->is_update_available( $installed );
+
+		ob_start();
+		?>
+		<tr data-product-id="<?php echo esc_attr( $product->get_id() ); ?>"
+		    data-product-type="<?php echo esc_attr( $product->get_type() ); ?>">
+			<td><strong><?php echo esc_html( $product->get_name() ); ?></strong></td>
+			<td><?php echo esc_html( $product->get_type() ); ?></td>
+			<td class="ips-col-installed"><?php echo esc_html( $installed ); ?></td>
+			<td class="ips-col-latest">
+				<?php if ( $latest_version !== '' ) : ?>
+					<?php echo esc_html( $latest_version ); ?>
+					<?php if ( $update_available ) : ?>
+						<span style="color:#d63638;" title="<?php esc_attr_e( 'Update available', 'interplay-services' ); ?>">●</span>
+					<?php endif; ?>
+				<?php else : ?>
+					<span style="color:#888">—</span>
+				<?php endif; ?>
+			</td>
+			<td>
+				<?php echo esc_html( (string) ( $source['driver'] ?? '—' ) ); ?>
+				<?php if ( ! empty( $source['repository'] ) ) : ?>
+					&nbsp;(<code><?php echo esc_html( (string) $source['repository'] ); ?></code>)
+				<?php endif; ?>
+			</td>
+			<td>
+				<?php if ( $product->requires_license() ) : ?>
+					<?php esc_html_e( 'Required', 'interplay-services' ); ?>
+				<?php else : ?>
+					<span style="color:#888"><?php esc_html_e( 'None', 'interplay-services' ); ?></span>
+				<?php endif; ?>
+			</td>
+			<td class="ips-col-action">
+				<?php if ( $update_available ) : ?>
+					<button type="button"
+					        class="button button-primary ips-update-btn"
+					        data-product-id="<?php echo esc_attr( $product->get_id() ); ?>"
+					        data-product-type="<?php echo esc_attr( $product->get_type() ); ?>">
+						<?php
+						printf(
+							/* translators: %s: version number */
+							esc_html__( 'Update to %s', 'interplay-services' ),
+							esc_html( $latest_version )
+						);
+						?>
+					</button>
+				<?php else : ?>
+					<span style="color:#888"><?php esc_html_e( 'Up to date', 'interplay-services' ); ?></span>
+				<?php endif; ?>
+			</td>
+		</tr>
+		<?php
+		return (string) ob_get_clean();
 	}
 
 	private function render_open_issues_table(): void {
@@ -755,7 +871,113 @@ class SettingsPage {
 		wp_update_plugins();
 
 		wp_send_json_success( [
-			'message' => __( 'Update check complete. Reload the Updates screen to see results.', 'interplay-services' ),
+			'message' => __( 'Update check complete.', 'interplay-services' ),
+			'rows'    => $this->render_products_table_rows(),
+		] );
+	}
+
+	/**
+	 * Run an actual WP update for a single registered product.
+	 *
+	 * Expects POST params:
+	 *   action      = interplay_services_update_product
+	 *   _wpnonce    = interplay_services_update_product nonce
+	 *   product_id  = e.g. 'intro' or 'interplay-services/interplay-services.php'
+	 *   product_type = 'theme' | 'plugin'
+	 */
+	public function ajax_update_product(): void {
+		check_ajax_referer( 'interplay_services_update_product' );
+
+		$product_id   = isset( $_POST['product_id'] ) ? sanitize_text_field( wp_unslash( (string) $_POST['product_id'] ) ) : '';
+		$product_type = isset( $_POST['product_type'] ) ? sanitize_key( wp_unslash( (string) $_POST['product_type'] ) ) : '';
+
+		if ( $product_id === '' || $product_type === '' ) {
+			wp_send_json_error( [ 'message' => __( 'Missing product identifier.', 'interplay-services' ) ] );
+		}
+
+		$capability = $product_type === 'theme' ? 'update_themes' : 'update_plugins';
+		if ( ! current_user_can( $capability ) ) {
+			wp_send_json_error( [ 'message' => __( 'Insufficient permissions.', 'interplay-services' ) ] );
+		}
+
+		$product = $this->registry->find( $product_id );
+		if ( $product === null || $product->get_type() !== $product_type ) {
+			wp_send_json_error( [ 'message' => __( 'Unknown product.', 'interplay-services' ) ] );
+		}
+
+		Logger::instance()->info( 'admin: update requested', [
+			'product' => $product_id,
+			'type'    => $product_type,
+		] );
+
+		// Bust caches so the upgrader sees the latest GitHub release.
+		global $wpdb;
+		$wpdb->query(
+			"DELETE FROM {$wpdb->options}
+			 WHERE option_name LIKE '_transient_interplay_update_%'
+			    OR option_name LIKE '_transient_timeout_interplay_update_%'"
+		);
+		delete_site_transient( 'update_themes' );
+		delete_site_transient( 'update_plugins' );
+
+		// Required upgrader plumbing.
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+		require_once ABSPATH . 'wp-admin/includes/misc.php';
+		require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
+
+		// Force a fresh update check so the transient is populated.
+		if ( $product_type === 'theme' ) {
+			wp_update_themes();
+			$skin     = new \Automatic_Upgrader_Skin();
+			$upgrader = new \Theme_Upgrader( $skin );
+			$result   = $upgrader->upgrade( $product_id );
+		} else {
+			wp_update_plugins();
+			$skin     = new \Automatic_Upgrader_Skin();
+			$upgrader = new \Plugin_Upgrader( $skin );
+			$result   = $upgrader->upgrade( $product_id );
+		}
+
+		if ( is_wp_error( $result ) ) {
+			Logger::instance()->error( 'admin: update failed', [
+				'product' => $product_id,
+				'error'   => $result->get_error_message(),
+			] );
+			wp_send_json_error( [
+				'message' => sprintf(
+					/* translators: %s: error message */
+					__( 'Update failed: %s', 'interplay-services' ),
+					$result->get_error_message()
+				),
+				'rows' => $this->render_products_table_rows(),
+			] );
+		}
+
+		if ( $result === false ) {
+			$skin_errors = $skin->get_errors();
+			$message = is_wp_error( $skin_errors ) && $skin_errors->has_errors()
+				? $skin_errors->get_error_message()
+				: __( 'No update available, or the upgrader reported a non-specific failure.', 'interplay-services' );
+			Logger::instance()->warn( 'admin: update returned false', [
+				'product' => $product_id,
+				'message' => $message,
+			] );
+			wp_send_json_error( [
+				'message' => $message,
+				'rows'    => $this->render_products_table_rows(),
+			] );
+		}
+
+		// Re-activate the plugin if the upgrader deactivated it (Plugin_Upgrader does this).
+		if ( $product_type === 'plugin' && ! is_plugin_active( $product_id ) ) {
+			activate_plugin( $product_id );
+		}
+
+		Logger::instance()->info( 'admin: update succeeded', [ 'product' => $product_id ] );
+
+		wp_send_json_success( [
+			'message' => __( 'Update complete.', 'interplay-services' ),
+			'rows'    => $this->render_products_table_rows(),
 		] );
 	}
 

@@ -341,6 +341,17 @@ class UpdateManager {
 
 	// ─── Internal helpers ─────────────────────────────────────────────────────
 
+	/**
+	 * Public accessor for the latest UpdateResult for a product.
+	 *
+	 * Used by the admin Registered Products table to show the current
+	 * GitHub release alongside the installed version. Returns null if
+	 * the source can't be reached or the product has no driver.
+	 */
+	public function latest_for_product( ProductInterface $product ): ?UpdateResult {
+		return $this->check_product( $product );
+	}
+
 	private function check_product( ProductInterface $product ): ?UpdateResult {
 		// Don't fire remote checks during an in-flight upgrade. Between
 		// upgrader_clear_destination (deletes old plugin folder) and the
