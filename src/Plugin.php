@@ -148,7 +148,8 @@ final class Plugin {
 			fn( Plugin $p ) => new Admin\SettingsPage(
 				$p->make( Registry\ProductRegistry::class ),
 				$p->make( License\LicenseManager::class ),
-				$p->make( Http\Client::class )
+				$p->make( Http\Client::class ),
+				$p->make( Updater\UpdateManager::class )
 			)
 		);
 	}
